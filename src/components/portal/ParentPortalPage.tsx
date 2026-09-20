@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useRef, useId } from "react";
+import React, { useState, useEffect, useRef, useId, useMemo } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
+  ArrowUpDown,
   Bell,
+  BookMarked,
   BookOpen,
+  Calendar,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -13,16 +17,21 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileCheck2,
   FileText,
+  Filter,
   GraduationCap,
   HelpCircle,
   Home,
-  Info,
   LockKeyhole,
   LogOut,
   Menu,
+  Paperclip,
   Plus,
+  RotateCcw,
+  Search,
   ShieldCheck,
+  Sparkles,
   UserRound,
   Users,
   X,
@@ -33,6 +42,7 @@ import type {
   ParentDashboardData,
   PortalView,
   AbsenceReason,
+  Assignment,
   Pupil,
 } from "../../types/portal";
 
@@ -42,6 +52,7 @@ interface ParentPortalPageProps {
 
 const portalNavigation: { id: PortalView; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: Home },
+  { id: "homework", label: "Homework", icon: BookOpen },
   { id: "reports", label: "Reports & attendance", icon: FileText },
   { id: "fees", label: "Fees & receipts", icon: CreditCard },
   { id: "notices", label: "Notices", icon: Bell },
@@ -102,7 +113,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     };
   }, [isPupilMenuOpen]);
 
-  // Handle Escape and Keyboard navigation in dropdown
+  // Handle Escape dismissal
   const handleDropdownKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       setIsPupilMenuOpen(false);
@@ -144,11 +155,29 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     setIsPupilMenuOpen(false);
   };
 
+  const handleToggleHomeworkCompletion = async (assignmentId: string, completed: boolean) => {
+    try {
+      await portalService.toggleAssignmentCompletion(assignmentId, completed);
+      await loadPortalData(activePupilId);
+      setActionSuccess(
+        completed
+          ? "Homework marked as completed by parent."
+          : "Homework status changed back to pending."
+      );
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (err) {
+      console.error("Failed to toggle completion:", err);
+    }
+  };
+
   const handleAbsenceSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!dashboardData) return;
     const form = new FormData(e.currentTarget);
-    const targetPupilId = (form.get("pupilId") as string) || dashboardData.selectedPupil?.id || dashboardData.pupils[0].id;
+    const targetPupilId =
+      (form.get("pupilId") as string) ||
+      dashboardData.selectedPupil?.id ||
+      dashboardData.pupils[0].id;
     const startDate = form.get("startDate") as string;
     const endDate = form.get("endDate") as string;
     const reason = form.get("reason") as AbsenceReason;
@@ -174,7 +203,8 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     if (!dashboardData) return;
     const form = new FormData(e.currentTarget);
     const invoiceId = form.get("invoiceId") as string;
-    const selectedInv = dashboardData.invoices.find((i) => i.id === invoiceId) || dashboardData.invoices[0];
+    const selectedInv =
+      dashboardData.invoices.find((i) => i.id === invoiceId) || dashboardData.invoices[0];
     const amount = Number(form.get("amount")) || 0;
     const bankName = form.get("bankName") as string;
     const paymentDate = form.get("paymentDate") as string;
@@ -183,7 +213,10 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
 
     await portalService.submitPaymentProof({
       invoiceId: selectedInv?.id || invoiceId,
-      pupilId: selectedInv?.pupilId || dashboardData.selectedPupil?.id || dashboardData.pupils[0].id,
+      pupilId:
+        selectedInv?.pupilId ||
+        dashboardData.selectedPupil?.id ||
+        dashboardData.pupils[0].id,
       parentId: dashboardData.parent.id,
       amount,
       bankName,
@@ -230,7 +263,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               Every milestone, closer to home.
             </h1>
             <p className="mt-6 max-w-lg text-base leading-7 text-white/76">
-              Follow all your children&apos;s learning journeys, attendance, school notices, and fee statements from one calm, private family workspace.
+              Follow your children&apos;s daily homework, continuous assessments, attendance, and fee statements from one private family hub.
             </p>
 
             <div className="mt-12 grid max-w-xl grid-cols-3 border-y border-white/18 py-6">
@@ -521,7 +554,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                         </span>
                       </div>
                       <p className={`text-[11px] truncate mt-0.5 ${isFamilyView ? "text-white/80" : "text-[#817887]"}`}>
-                        Consolidated fees, attendance & calendar
+                        Consolidated homework, fees & attendance
                       </p>
                     </div>
                   </button>
@@ -600,7 +633,9 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                   {isFamilyView ? "Family Overview" : selectedPupil?.fullName}
                 </p>
                 <p className="text-[10px] text-[#817887] truncate">
-                  {isFamilyView ? "All Enrolled Children" : `${selectedPupil?.class} · ${selectedPupil?.admissionNumber}`}
+                  {isFamilyView
+                    ? "All Enrolled Children"
+                    : `${selectedPupil?.class} · ${selectedPupil?.admissionNumber}`}
                 </p>
               </div>
             </div>
@@ -674,6 +709,14 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                     onSwitchToFamily={() => handleSwitchPupil("family")}
                   />
                 )
+              ) : null}
+
+              {activeView === "homework" && dashboardData ? (
+                <Homework
+                  data={dashboardData}
+                  onSelectChild={handleSwitchPupil}
+                  onToggleCompletion={handleToggleHomeworkCompletion}
+                />
               ) : null}
 
               {activeView === "reports" && dashboardData ? (
@@ -1094,6 +1137,14 @@ const FamilyOverview: React.FC<{
     data.pupils.reduce((acc, p) => acc + p.attendanceRate, 0) / data.pupils.length
   ).toFixed(1);
 
+  // Group pending assignments by child for the family view
+  const pendingByChild = data.pupils.map((pupil) => ({
+    pupil,
+    assignments: data.assignments.filter(
+      (a) => a.pupilId === pupil.id && a.status === "Pending"
+    ),
+  }));
+
   return (
     <div className="space-y-7">
       {/* Family Banner Card */}
@@ -1148,6 +1199,90 @@ const FamilyOverview: React.FC<{
           note="Circulars & announcements"
           icon={Bell}
         />
+      </section>
+
+      {/* Upcoming Homework Summary by Child */}
+      <section className="rounded-2xl border border-[#E5DFE9] bg-white p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EEE9F1] pb-4 mb-5">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
+              Homework & Tasks
+            </p>
+            <h3 className="text-lg font-extrabold text-[#29166F]">
+              Active Assignments Grouped by Child
+            </h3>
+          </div>
+          <button
+            onClick={() => onNavigate("homework")}
+            className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+          >
+            <span>Open homework manager</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-3">
+          {pendingByChild.map(({ pupil, assignments }) => (
+            <div
+              key={pupil.id}
+              className="rounded-xl border border-[#EEE9F1] bg-[#FBF9FD] p-4 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 border-b border-[#EEE9F1] pb-2.5 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#581C87] text-white text-xs font-bold">
+                      {pupil.avatarInitials}
+                    </span>
+                    <div>
+                      <p className="font-extrabold text-xs text-[#29166F]">{pupil.fullName}</p>
+                      <p className="text-[10px] text-[#817887]">{pupil.class}</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#F0EBF5] text-[#581C87]">
+                    {assignments.length} due
+                  </span>
+                </div>
+
+                {assignments.length > 0 ? (
+                  <div className="space-y-2">
+                    {assignments.slice(0, 2).map((asg) => (
+                      <div key={asg.id} className="rounded-lg bg-white p-2.5 border border-[#E8E2ED] text-xs">
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="font-bold text-[#29166F] truncate">{asg.title}</span>
+                          {asg.isDueSoon && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-[#FEF9C3] text-[#854D0E] shrink-0">
+                              <Clock className="h-2.5 w-2.5" /> Soon
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#817887] flex items-center justify-between">
+                          <span>{asg.subject}</span>
+                          <span className="font-semibold text-[#581C87]">Due {asg.dueDate}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-xs text-[#817887]">
+                    <CheckCircle2 className="h-5 w-5 text-[#087A50] mx-auto mb-1" />
+                    <span>No pending assignments!</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  onSelectChild(pupil.id);
+                  onNavigate("homework");
+                }}
+                className="mt-3 pt-2.5 border-t border-[#EEE9F1] text-[11px] font-bold text-[#581C87] hover:underline flex items-center justify-between cursor-pointer w-full"
+              >
+                <span>View all {pupil.firstName}&apos;s tasks</span>
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Children Cards Grid */}
@@ -1451,7 +1586,511 @@ const Progress: React.FC<{ label: string; score: number }> = ({ label, score }) 
 );
 
 /**
- * 3. Reports & Attendance View
+ * 3. Complete Homework & Assignments Component
+ */
+const Homework: React.FC<{
+  data: ParentDashboardData;
+  onSelectChild: (pupilId: string) => void;
+  onToggleCompletion: (assignmentId: string, completed: boolean) => void;
+}> = ({ data, onSelectChild, onToggleCompletion }) => {
+  const [statusFilter, setStatusFilter] = useState<"all" | "upcoming" | "completed" | "overdue">("all");
+  const [subjectFilter, setSubjectFilter] = useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<"due-soon" | "due-late" | "subject-az">("due-soon");
+  const [detailAssignment, setDetailAssignment] = useState<Assignment | null>(null);
+
+  const pupil = data.selectedPupil;
+  const isFamily = data.isFamilyView;
+
+  // Extract unique subjects for dropdown
+  const availableSubjects = useMemo(() => {
+    const set = new Set<string>();
+    data.assignments.forEach((a) => set.add(a.subject));
+    return Array.from(set).sort();
+  }, [data.assignments]);
+
+  // Counts for filters
+  const counts = useMemo(() => {
+    let upcoming = 0;
+    let completed = 0;
+    let overdue = 0;
+    data.assignments.forEach((a) => {
+      if (a.status === "Pending") upcoming++;
+      else if (a.status === "Completed" || a.status === "Graded" || a.status === "Submitted") completed++;
+      else if (a.status === "Overdue") overdue++;
+    });
+    return { all: data.assignments.length, upcoming, completed, overdue };
+  }, [data.assignments]);
+
+  // Filter and sort assignments
+  const filteredAssignments = useMemo(() => {
+    return data.assignments
+      .filter((a) => {
+        // Status filter
+        if (statusFilter === "upcoming" && a.status !== "Pending") return false;
+        if (
+          statusFilter === "completed" &&
+          a.status !== "Completed" &&
+          a.status !== "Graded" &&
+          a.status !== "Submitted"
+        )
+          return false;
+        if (statusFilter === "overdue" && a.status !== "Overdue") return false;
+
+        // Subject filter
+        if (subjectFilter !== "all" && a.subject !== subjectFilter) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortOrder === "due-soon") {
+          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        }
+        if (sortOrder === "due-late") {
+          return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+        }
+        if (sortOrder === "subject-az") {
+          return a.subject.localeCompare(b.subject);
+        }
+        return 0;
+      });
+  }, [data.assignments, statusFilter, subjectFilter, sortOrder]);
+
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setSubjectFilter("all");
+    setSortOrder("due-soon");
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Overview & Quick Info Strip */}
+      <section className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#EEE9F1] pb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-[#F1ECF6] px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#581C87]">
+                Curriculum & Homework
+              </span>
+              <span className="text-xs text-[#817887]">
+                {isFamily ? "All Enrolled Children" : `${pupil?.fullName} (${pupil?.class})`}
+              </span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-[#29166F] mt-1">
+              Homework & Course Tasks
+            </h2>
+            <p className="text-xs sm:text-sm text-[#625B69] mt-1">
+              {isFamily
+                ? "Oversee coursework across all children. Filter by status or select an individual pupil profile above."
+                : `Active homework assignments set by ${pupil?.classTeacher || "class teachers"}. Review instructions and mark tasks complete.`}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#FAF8FC] border border-[#E8E2ED] px-3.5 py-2 text-xs font-extrabold text-[#29166F]">
+              <BookMarked className="h-4 w-4 text-[#581C87]" />
+              <span>{counts.upcoming} Upcoming</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#E5F7ED] px-3.5 py-2 text-xs font-extrabold text-[#087A50]">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>{counts.completed} Done</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Filter and Sort Controls */}
+        <div className="mt-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Status Filter Chips */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {[
+              { id: "all", label: "All Tasks", count: counts.all },
+              { id: "upcoming", label: "Upcoming", count: counts.upcoming },
+              { id: "completed", label: "Completed", count: counts.completed },
+              { id: "overdue", label: "Overdue", count: counts.overdue },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setStatusFilter(tab.id as any)}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer ${
+                  statusFilter === tab.id
+                    ? "bg-[#581C87] text-white shadow-xs"
+                    : "bg-[#F8F6FA] text-[#625B69] hover:bg-[#F1ECF6] hover:text-[#29166F]"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                    statusFilter === tab.id
+                      ? "bg-white/20 text-white"
+                      : "bg-[#E8E2ED] text-[#581C87]"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Secondary Controls: Subject filter & Sort */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative">
+              <select
+                aria-label="Filter by subject"
+                value={subjectFilter}
+                onChange={(e) => setSubjectFilter(e.target.value)}
+                className="h-10 rounded-xl border border-[#DCD5E1] bg-white pl-3 pr-8 text-xs font-bold text-[#342D3A] outline-none transition focus:border-[#581C87] cursor-pointer"
+              >
+                <option value="all">All Subjects</option>
+                {availableSubjects.map((subj) => (
+                  <option key={subj} value={subj}>
+                    {subj}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative">
+              <select
+                aria-label="Sort assignments"
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value as any)}
+                className="h-10 rounded-xl border border-[#DCD5E1] bg-white pl-3 pr-8 text-xs font-bold text-[#342D3A] outline-none transition focus:border-[#581C87] cursor-pointer"
+              >
+                <option value="due-soon">Due Date: Soonest first</option>
+                <option value="due-late">Due Date: Latest first</option>
+                <option value="subject-az">Subject: A to Z</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Assignment Cards List / Mobile Ergonomics */}
+      {filteredAssignments.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {filteredAssignments.map((asg) => {
+            const child = data.pupils.find((p) => p.id === asg.pupilId);
+            const isCompleted =
+              asg.status === "Completed" || asg.status === "Graded" || asg.status === "Submitted";
+            const isOverdue = asg.status === "Overdue";
+
+            return (
+              <div
+                key={asg.id}
+                className={`rounded-2xl border bg-white p-5 shadow-xs transition-all flex flex-col justify-between ${
+                  asg.isDueSoon && !isCompleted
+                    ? "border-[#E9DB3D]/80 bg-[linear-gradient(180deg,#FFFEF7_0%,#FFFFFF_100%)] shadow-sm"
+                    : isOverdue
+                    ? "border-[#FCA5A5]/60 bg-[linear-gradient(180deg,#FFFDFD_0%,#FFFFFF_100%)]"
+                    : "border-[#E5DFE9] hover:border-[#BBAFC4]"
+                }`}
+              >
+                <div>
+                  {/* Top Badges */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="rounded-md bg-[#F1ECF6] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#581C87]">
+                        {asg.subject}
+                      </span>
+                      {isFamily && child && (
+                        <span className="rounded-md bg-[#29166F]/10 px-2 py-0.5 text-[10px] font-bold text-[#29166F]">
+                          {child.firstName} ({child.class})
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status Pill with Visual Prioritization for Due Soon */}
+                    {isCompleted ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-[10px] font-extrabold text-[#087A50]">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {asg.status === "Graded" ? `Graded: ${asg.score}%` : "Completed"}
+                      </span>
+                    ) : isOverdue ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FEE2E2] px-2.5 py-0.5 text-[10px] font-extrabold text-[#991B1B]">
+                        <AlertCircle className="h-3 w-3" />
+                        Overdue
+                      </span>
+                    ) : asg.isDueSoon ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FEF9C3] border border-[#FDE047]/60 px-2.5 py-0.5 text-[10px] font-extrabold text-[#854D0E]">
+                        <Clock className="h-3 w-3 text-[#A16207]" />
+                        Due soon
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#F8F6FA] px-2.5 py-0.5 text-[10px] font-extrabold text-[#625B69]">
+                        Upcoming
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Title & Description */}
+                  <h3 className="font-extrabold text-base text-[#29166F] leading-snug">
+                    {asg.title}
+                  </h3>
+                  {asg.description && (
+                    <p className="text-xs text-[#625B69] mt-1.5 line-clamp-2 leading-relaxed">
+                      {asg.description}
+                    </p>
+                  )}
+
+                  {/* Dates and Teacher Metadata */}
+                  <div className="mt-4 border-t border-[#EEE9F1] pt-3 text-xs text-[#817887] space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span>Teacher:</span>
+                      <strong className="text-[#342D3A] font-semibold">{asg.teacher}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Due date:</span>
+                      <strong
+                        className={`font-bold ${
+                          isOverdue
+                            ? "text-[#991B1B]"
+                            : asg.isDueSoon
+                            ? "text-[#854D0E]"
+                            : "text-[#29166F]"
+                        }`}
+                      >
+                        {asg.dueDate}
+                      </strong>
+                    </div>
+                    {asg.attachmentName && (
+                      <div className="flex items-center justify-between text-[11px] pt-1">
+                        <span className="inline-flex items-center gap-1 text-[#581C87]">
+                          <Paperclip className="h-3 w-3" /> Resource attached
+                        </span>
+                        <span className="text-[#817887] font-medium">{asg.attachmentSize}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bottom Actions */}
+                <div className="mt-5 pt-3.5 border-t border-[#EEE9F1] flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setDetailAssignment(asg)}
+                    className="text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                  >
+                    View instructions &rarr;
+                  </button>
+
+                  <button
+                    onClick={() => onToggleCompletion(asg.id, !isCompleted)}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      isCompleted
+                        ? "bg-[#FAF8FC] border border-[#DCD5E1] text-[#625B69] hover:bg-[#F1ECF6]"
+                        : "bg-[#581C87] text-white hover:bg-[#29166F]"
+                    }`}
+                  >
+                    {isCompleted ? (
+                      <>
+                        <RotateCcw className="h-3 w-3" />
+                        <span>Reopen</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>Mark done</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Empty State */
+        <div className="rounded-2xl border border-dashed border-[#DCD5E1] bg-white p-10 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F1ECF6] text-[#581C87] mb-4">
+            <BookOpen className="h-7 w-7" />
+          </div>
+          <h3 className="text-lg font-extrabold text-[#29166F]">
+            No homework matches your filter
+          </h3>
+          <p className="mt-1.5 text-sm text-[#625B69] max-w-md mx-auto">
+            {statusFilter === "overdue"
+              ? "All clear! There are no overdue assignments on this file."
+              : statusFilter === "upcoming"
+              ? "No pending assignments due under this criteria."
+              : "Try adjusting your subject filter or view all assignments."}
+          </p>
+          <button
+            onClick={resetFilters}
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#581C87] px-5 py-2.5 text-xs font-extrabold text-white transition hover:bg-[#29166F] cursor-pointer"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Clear all filters</span>
+          </button>
+        </div>
+      )}
+
+      {/* Assignment Detail Responsive Modal / Drawer */}
+      <AnimatePresence>
+        {detailAssignment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#160B35]/50 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 sm:p-7 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-[#EEE9F1] pb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="rounded-md bg-[#F1ECF6] px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#581C87]">
+                      {detailAssignment.subject}
+                    </span>
+                    {detailAssignment.isDueSoon && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded bg-[#FEF9C3] text-[#854D0E]">
+                        <Clock className="h-3 w-3" /> Due Soon
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-extrabold text-[#29166F]">
+                    {detailAssignment.title}
+                  </h3>
+                  <p className="text-xs text-[#817887] mt-0.5">
+                    Set by {detailAssignment.teacher} &bull; Assigned {detailAssignment.assignedDate}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDetailAssignment(null)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer shrink-0"
+                  aria-label="Close details"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-5 text-sm text-[#342D3A]">
+                {/* Due Date Card */}
+                <div className="rounded-xl bg-[#FAF8FC] border border-[#EEE9F1] p-4 flex items-center justify-between">
+                  <div>
+                    <span className="block text-[10px] font-extrabold uppercase tracking-wider text-[#817887]">
+                      Submission Deadline
+                    </span>
+                    <span className="font-extrabold text-base text-[#29166F]">
+                      {detailAssignment.dueDate}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="block text-[10px] font-extrabold uppercase tracking-wider text-[#817887]">
+                      Status
+                    </span>
+                    <span
+                      className={`inline-block text-xs font-extrabold ${
+                        detailAssignment.status === "Completed" || detailAssignment.status === "Graded"
+                          ? "text-[#087A50]"
+                          : detailAssignment.status === "Overdue"
+                          ? "text-[#991B1B]"
+                          : "text-[#854D0E]"
+                      }`}
+                    >
+                      {detailAssignment.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Instructions */}
+                <div>
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#581C87] mb-2">
+                    Assignment Instructions & Tasks
+                  </h4>
+                  <div className="rounded-xl border border-[#EEE9F1] bg-white p-4 text-xs leading-relaxed text-[#4C4652] whitespace-pre-line">
+                    {detailAssignment.instructions || detailAssignment.description}
+                  </div>
+                </div>
+
+                {/* Downloadable Worksheet Placeholder */}
+                {detailAssignment.attachmentName && (
+                  <div>
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#581C87] mb-2">
+                      Coursework Resource Sheet
+                    </h4>
+                    <div className="flex items-center justify-between rounded-xl border border-[#DCD5E1] bg-[#FBF9FD] p-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#581C87]/15 text-[#581C87]">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-[#29166F]">
+                            {detailAssignment.attachmentName}
+                          </p>
+                          <p className="text-[10px] text-[#817887]">
+                            PDF Worksheet &bull; {detailAssignment.attachmentSize}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href={detailAssignment.attachmentUrl || "#"}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          alert(`Downloading demo worksheet: ${detailAssignment.attachmentName}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#581C87] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#29166F] cursor-pointer"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>Download</span>
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Teacher Feedback if Graded */}
+                {detailAssignment.teacherFeedback && (
+                  <div className="rounded-xl border border-[#E5F7ED] bg-[#F5FCF8] p-4">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#087A50]">
+                      Teacher Feedback & Score ({detailAssignment.score}%)
+                    </p>
+                    <p className="text-xs font-bold text-[#29166F] italic mt-1">
+                      &ldquo;{detailAssignment.teacherFeedback}&rdquo;
+                    </p>
+                  </div>
+                )}
+
+                {/* Parent Toggle Action */}
+                <div className="border-t border-[#EEE9F1] pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span className="text-xs text-[#817887]">
+                    Confirm your child has reviewed and completed this homework.
+                  </span>
+                  <button
+                    onClick={() => {
+                      const isDone =
+                        detailAssignment.status === "Completed" ||
+                        detailAssignment.status === "Graded" ||
+                        detailAssignment.status === "Submitted";
+                      onToggleCompletion(detailAssignment.id, !isDone);
+                      setDetailAssignment((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              status: isDone ? "Pending" : "Completed",
+                              completedByParent: !isDone,
+                            }
+                          : null
+                      );
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#581C87] px-5 py-3 text-xs font-extrabold text-white transition hover:bg-[#29166F] cursor-pointer shrink-0"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>
+                      {detailAssignment.status === "Completed" ||
+                      detailAssignment.status === "Graded" ||
+                      detailAssignment.status === "Submitted"
+                        ? "Mark as Pending (Reopen)"
+                        : "Mark as Completed"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+/**
+ * 4. Reports & Attendance View
  */
 const Reports: React.FC<{
   data: ParentDashboardData;
@@ -1608,7 +2247,7 @@ const Reports: React.FC<{
 };
 
 /**
- * 4. Fees & Receipts View
+ * 5. Fees & Receipts View
  */
 const Fees: React.FC<{
   data: ParentDashboardData;
@@ -1623,7 +2262,9 @@ const Fees: React.FC<{
       <section className="grid overflow-hidden rounded-xl bg-[#29166F] text-white sm:grid-cols-[1fr_auto]">
         <div className="p-6 sm:p-8">
           <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">
-            {isFamily ? "Total family balance across all children" : `First term balance · ${data.selectedPupil?.firstName}`}
+            {isFamily
+              ? "Total family balance across all children"
+              : `First term balance · ${data.selectedPupil?.firstName}`}
           </p>
           <p className="mt-3 text-4xl font-extrabold">
             ₦{totalBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
@@ -1762,7 +2403,7 @@ const Fees: React.FC<{
 };
 
 /**
- * 5. Notices View
+ * 6. Notices View
  */
 const Notices: React.FC<{ data: ParentDashboardData }> = ({ data }) => (
   <div className="overflow-hidden rounded-xl border border-[#E5DFE9] bg-white">

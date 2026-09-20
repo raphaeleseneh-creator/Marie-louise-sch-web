@@ -10,12 +10,12 @@ export type StudentStatus = "Good standing" | "Active" | "Probation" | "Alumni";
 export type AttendanceStatus = "Present" | "Late" | "Absent" | "Excused";
 export type InvoiceStatus = "Settled" | "Partially Paid" | "Pending" | "Overdue";
 export type PaymentStatus = "Verified" | "Processing" | "Failed";
-export type AssignmentStatus = "Graded" | "Submitted" | "Pending" | "Overdue";
+export type AssignmentStatus = "Pending" | "Submitted" | "Graded" | "Overdue" | "Completed";
 export type AbsenceReason = "Illness" | "Medical Appointment" | "Family Event" | "Travel" | "Other";
 export type AbsenceStatus = "Submitted" | "Approved" | "Under Review" | "Declined";
 export type PaymentProofStatus = "Submitted" | "Under Verification" | "Approved" | "Declined";
 export type DayOfWeek = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
-export type PortalView = "overview" | "reports" | "fees" | "notices";
+export type PortalView = "overview" | "homework" | "reports" | "fees" | "notices";
 
 /**
  * 1. Parent Model (Airtable: Parents)
@@ -83,14 +83,22 @@ export interface Assignment {
   pupilId: AirtableRecordId;
   subject: string; // e.g. "Mathematics & problem solving"
   title: string;
+  teacher: string; // e.g. "Mrs A. Adeyemi"
+  assignedDate: string; // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD
   description?: string;
-  dueDate: string;
+  instructions?: string; // detailed step-by-step guidance
+  attachmentName?: string; // e.g. "Fractions_Worksheet_Unit4.pdf"
+  attachmentSize?: string; // e.g. "1.4 MB"
+  attachmentUrl?: string;
   submittedDate?: string;
-  score: number; // e.g. 92
-  maxScore: number; // e.g. 100
-  grade: string; // e.g. "Distinction", "Excellent"
+  score?: number; // e.g. 92
+  maxScore?: number; // e.g. 100
+  grade?: string; // e.g. "Distinction", "Excellent"
   status: AssignmentStatus;
   teacherFeedback?: string;
+  isDueSoon?: boolean; // Due in <= 2 days
+  completedByParent?: boolean;
 }
 
 /**
@@ -248,6 +256,7 @@ export interface ParentDashboardData {
   isFamilyView: boolean;
   familyCards: PupilFamilyCard[];
   academicProgress: SubjectGradeSummary[];
+  assignments: Assignment[];
   calendarEvents: CalendarEvent[];
   notices: Notice[];
   invoices: Invoice[];

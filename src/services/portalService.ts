@@ -70,6 +70,7 @@ export interface ParentPortalService {
 
   submitAbsenceReport(input: CreateAbsenceReportInput): Promise<AbsenceReport>;
   submitPaymentProof(input: CreatePaymentProofInput): Promise<PaymentProof>;
+  toggleAssignmentCompletion(assignmentId: string, completed: boolean): Promise<Assignment>;
 }
 
 /**
@@ -211,6 +212,7 @@ class LocalParentPortalService implements ParentPortalService {
       isFamilyView,
       familyCards,
       academicProgress,
+      assignments: pupilAssignments,
       calendarEvents: [...this.calendarEvents],
       notices: [...this.notices],
       invoices: pupilInvoices,
@@ -306,6 +308,21 @@ class LocalParentPortalService implements ParentPortalService {
 
     this.paymentProofs.unshift(newProof);
     return newProof;
+  }
+
+  async toggleAssignmentCompletion(assignmentId: string, completed: boolean): Promise<Assignment> {
+    const asg = this.assignments.find((a) => a.id === assignmentId);
+    if (!asg) {
+      throw new Error(`Assignment with ID ${assignmentId} not found.`);
+    }
+    asg.status = completed ? "Completed" : "Pending";
+    asg.completedByParent = completed;
+    if (completed) {
+      asg.submittedDate = new Date().toISOString().split("T")[0];
+    } else {
+      asg.submittedDate = undefined;
+    }
+    return { ...asg };
   }
 }
 
