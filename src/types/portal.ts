@@ -15,7 +15,7 @@ export type AbsenceReason = "Illness" | "Medical Appointment" | "Family Event" |
 export type AbsenceStatus = "Submitted" | "Approved" | "Under Review" | "Declined";
 export type PaymentProofStatus = "Submitted" | "Under Verification" | "Approved" | "Declined";
 export type DayOfWeek = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
-export type PortalView = "overview" | "homework" | "reports" | "fees" | "notices";
+export type PortalView = "overview" | "homework" | "reports" | "fees" | "calendar" | "timetable" | "notices";
 
 /**
  * 1. Parent Model (Airtable: Parents)
@@ -186,9 +186,22 @@ export interface TimetableEntry {
   startTime: string; // e.g. "08:15"
   endTime: string; // e.g. "09:00"
   subject: string;
-  teacher: string;
+  teacher?: string;
   room?: string;
+  classroom?: string;
+  isBreak?: boolean; // Morning assembly, snack recess, midday lunch
+  breakType?: "Assembly" | "Morning Snack" | "Lunch" | "Dismissal";
 }
+
+export type CalendarEventCategory =
+  | "School Event"
+  | "Holiday"
+  | "Academic"
+  | "Test / Exam"
+  | "Assignment Deadline"
+  | "Fee Deadline"
+  | "Sports"
+  | "Arts & Culture";
 
 /**
  * 9. Calendar Event Model (Airtable: CalendarEvents)
@@ -197,12 +210,17 @@ export interface CalendarEvent {
   id: AirtableRecordId;
   title: string;
   description?: string;
-  date: string; // ISO date string
-  day: string; // e.g. "23"
-  month: string; // e.g. "SEP"
-  category: "Academic" | "Sports" | "Arts & Culture" | "School Event" | "Holiday";
+  date: string; // YYYY-MM-DD
+  endDate?: string;
+  time?: string; // e.g. "09:00 AM - 12:30 PM" or "All Day"
+  day?: string; // e.g. "23"
+  month?: string; // e.g. "SEP"
+  category: CalendarEventCategory;
   targetClass?: string;
   location?: string;
+  pupilIds?: AirtableRecordId[]; // Empty if applicable to all children
+  affectedPupilNames?: string[];
+  notes?: string;
 }
 
 /**

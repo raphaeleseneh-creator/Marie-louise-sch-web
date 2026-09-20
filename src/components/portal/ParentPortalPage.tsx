@@ -13,9 +13,11 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   Clock,
+  Coffee,
   CreditCard,
   Download,
   Eye,
@@ -29,6 +31,7 @@ import {
   Info,
   LockKeyhole,
   LogOut,
+  MapPin,
   Menu,
   Paperclip,
   Plus,
@@ -41,6 +44,7 @@ import {
   Tag,
   UserRound,
   Users,
+  Utensils,
   X,
 } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
@@ -56,6 +60,10 @@ import type {
   FeeCategory,
   InvoiceItem,
   InvoiceStatus,
+  CalendarEvent,
+  CalendarEventCategory,
+  TimetableEntry,
+  DayOfWeek,
 } from "../../types/portal";
 
 interface ParentPortalPageProps {
@@ -65,6 +73,8 @@ interface ParentPortalPageProps {
 const portalNavigation: { id: PortalView; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: Home },
   { id: "homework", label: "Homework", icon: BookOpen },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
+  { id: "timetable", label: "Timetable", icon: Clock },
   { id: "reports", label: "Reports & attendance", icon: FileText },
   { id: "fees", label: "Fees & receipts", icon: CreditCard },
   { id: "notices", label: "Notices", icon: Bell },
@@ -735,6 +745,21 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                 <Reports
                   data={dashboardData}
                   onOpenAbsenceModal={() => setIsAbsenceModalOpen(true)}
+                  onSelectChild={handleSwitchPupil}
+                />
+              ) : null}
+
+              {activeView === "calendar" && dashboardData ? (
+                <CalendarView
+                  data={dashboardData}
+                  onSelectChild={handleSwitchPupil}
+                  onNavigate={setActiveView}
+                />
+              ) : null}
+
+              {activeView === "timetable" && dashboardData ? (
+                <Timetable
+                  data={dashboardData}
                   onSelectChild={handleSwitchPupil}
                 />
               ) : null}
@@ -2254,6 +2279,1040 @@ const Reports: React.FC<{
             )}
           </section>
         </>
+      )}
+    </div>
+  );
+};
+
+/**
+ * 4. Calendar & School Events View
+ */
+const CalendarView: React.FC<{
+  data: ParentDashboardData;
+  onSelectChild: (pupilId: string) => void;
+  onNavigate: (view: PortalView) => void;
+}> = ({ data, onSelectChild, onNavigate }) => {
+  const isFamily = data.isFamilyView;
+  const pupils = data.pupils;
+  const activePupil = data.selectedPupil;
+
+  // Initial date set to September 2026 (matching school session demo context)
+  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 8, 20));
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedChildFilter, setSelectedChildFilter] = useState<string>(
+    isFamily ? "all" : activePupil?.id || "all"
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"calendar" | "agenda">("calendar");
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Synchronize child filter if activePupil changes
+  useEffect(() => {
+    if (!isFamily && activePupil) {
+      setSelectedChildFilter(activePupil.id);
+    }
+  }, [activePupil, isFamily]);
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  // Month navigation handlers
+  const handlePrevMonth = () => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setCurrentDate(new Date(year, month - 1, 1));
+      setIsLoading(false);
+    }, 150);
+  };
+
+  const handleNextMonth = () => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setCurrentDate(new Date(year, month + 1, 1));
+      setIsLoading(false);
+    }, 150);
+  };
+
+  const handleToday = () => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setCurrentDate(new Date(2026, 8, 20));
+      setIsLoading(false);
+    }, 150);
+  };
+
+  // Category styling helper
+  const getCategoryStyles = (category: CalendarEventCategory) => {
+    switch (category) {
+      case "School Event":
+        return {
+          badge: "bg-[#F1ECF6] text-[#581C87] border-[#D8C7E8]",
+          dot: "bg-[#581C87]",
+          card: "border-l-4 border-l-[#581C87]",
+        };
+      case "Holiday":
+        return {
+          badge: "bg-[#FEF9C3] text-[#854D0E] border-[#FDE68A]",
+          dot: "bg-[#EAB308]",
+          card: "border-l-4 border-l-[#EAB308]",
+        };
+      case "Test / Exam":
+      case "Academic":
+        return {
+          badge: "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]",
+          dot: "bg-[#EF4444]",
+          card: "border-l-4 border-l-[#EF4444]",
+        };
+      case "Assignment Deadline":
+        return {
+          badge: "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]",
+          dot: "bg-[#3B82F6]",
+          card: "border-l-4 border-l-[#3B82F6]",
+        };
+      case "Fee Deadline":
+        return {
+          badge: "bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]",
+          dot: "bg-[#10B981]",
+          card: "border-l-4 border-l-[#10B981]",
+        };
+      case "Sports":
+        return {
+          badge: "bg-[#F0FDFA] text-[#0F766E] border-[#99F6E4]",
+          dot: "bg-[#14B8A6]",
+          card: "border-l-4 border-l-[#14B8A6]",
+        };
+      case "Arts & Culture":
+      default:
+        return {
+          badge: "bg-[#FAF5FF] text-[#7E22CE] border-[#E9D5FF]",
+          dot: "bg-[#A855F7]",
+          card: "border-l-4 border-l-[#A855F7]",
+        };
+    }
+  };
+
+  // Filter events based on active category, child, and search
+  const filteredEvents = useMemo(() => {
+    return data.calendarEvents.filter((ev) => {
+      // Category filter
+      if (selectedCategory !== "all" && ev.category !== selectedCategory) {
+        return false;
+      }
+
+      // Child filter: if specific child selected, event must either be applicable to all (empty pupilIds) or include child's ID
+      if (selectedChildFilter !== "all") {
+        if (ev.pupilIds && ev.pupilIds.length > 0 && !ev.pupilIds.includes(selectedChildFilter)) {
+          return false;
+        }
+      }
+
+      // Search query filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesTitle = ev.title.toLowerCase().includes(q);
+        const matchesDesc = ev.description?.toLowerCase().includes(q);
+        const matchesLoc = ev.location?.toLowerCase().includes(q);
+        const matchesTarget = ev.targetClass?.toLowerCase().includes(q);
+        const matchesChild = ev.affectedPupilNames?.some((n) => n.toLowerCase().includes(q));
+
+        if (!matchesTitle && !matchesDesc && !matchesLoc && !matchesTarget && !matchesChild) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [data.calendarEvents, selectedCategory, selectedChildFilter, searchQuery]);
+
+  // Generate calendar grid days for current month
+  const calendarGrid = useMemo(() => {
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 = Sun
+    const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+    const prevMonthDays = new Date(year, month, 0).getDate();
+
+    const cells: {
+      dateString: string;
+      dayNumber: number;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      events: CalendarEvent[];
+    }[] = [];
+
+    // Previous month padding
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dayNum = prevMonthDays - i;
+      const prevDate = new Date(year, month - 1, dayNum);
+      const dateString = prevDate.toISOString().split("T")[0];
+      const evs = filteredEvents.filter((e) => e.date === dateString);
+      cells.push({
+        dateString,
+        dayNumber: dayNum,
+        isCurrentMonth: false,
+        isToday: false,
+        events: evs,
+      });
+    }
+
+    // Current month days
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      const thisDate = new Date(year, month, day);
+      const dateString = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const isToday = year === 2026 && month === 8 && day === 20; // 20 Sep 2026
+      const evs = filteredEvents.filter((e) => {
+        if (e.date === dateString) return true;
+        if (e.endDate && dateString >= e.date && dateString <= e.endDate) return true;
+        return false;
+      });
+
+      cells.push({
+        dateString,
+        dayNumber: day,
+        isCurrentMonth: true,
+        isToday,
+        events: evs,
+      });
+    }
+
+    // Next month padding to fill a complete 35 or 42 grid
+    const remaining = (7 - (cells.length % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+      const nextDate = new Date(year, month + 1, i);
+      const dateString = nextDate.toISOString().split("T")[0];
+      const evs = filteredEvents.filter((e) => e.date === dateString);
+      cells.push({
+        dateString,
+        dayNumber: i,
+        isCurrentMonth: false,
+        isToday: false,
+        events: evs,
+      });
+    }
+
+    return cells;
+  }, [year, month, filteredEvents]);
+
+  // Events sorted chronologically for Agenda View
+  const agendaEvents = useMemo(() => {
+    return [...filteredEvents].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [filteredEvents]);
+
+  const monthName = currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <div className="space-y-6">
+      {/* Demonstration Notice */}
+      <div className="rounded-xl border border-[#29166F]/15 bg-[#F8F6FA] p-4 text-xs text-[#581C87] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <CalendarDays className="h-4 w-4 text-[#581C87] shrink-0" />
+          <span>
+            <strong>Official Academic Calendar:</strong> Displays scheduled school events, assessments, homework
+            deadlines, and fee payment milestones formatted for Airtable integration.
+          </span>
+        </div>
+        <span className="text-[11px] font-bold text-[#817887]">
+          {isFamily ? `Combined family schedule (${pupils.length} pupils)` : `Schedule for ${activePupil?.fullName}`}
+        </span>
+      </div>
+
+      {/* Calendar Header & Controls Bar */}
+      <section className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#EEE9F1] pb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-[#E9DB3D] px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#29166F]">
+                Academic Year 2026/2027
+              </span>
+              <span className="text-xs font-bold text-[#817887]">First Term</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-[#29166F] mt-1">
+              School & Family Events Calendar
+            </h2>
+          </div>
+
+          {/* Month Navigation & View Switcher */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="inline-flex items-center rounded-xl border border-[#DCD5E1] bg-[#FAF8FC] p-1 shadow-2xs">
+              <button
+                onClick={handlePrevMonth}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#581C87] hover:bg-white transition cursor-pointer"
+                aria-label="Previous month"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="min-w-[140px] text-center text-xs font-extrabold text-[#29166F]">
+                {monthName}
+              </span>
+              <button
+                onClick={handleNextMonth}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#581C87] hover:bg-white transition cursor-pointer"
+                aria-label="Next month"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+
+            <button
+              onClick={handleToday}
+              className="h-10 rounded-xl border border-[#DCD5E1] bg-white px-3 text-xs font-extrabold text-[#581C87] hover:bg-[#F8F6FA] transition cursor-pointer"
+            >
+              Today
+            </button>
+
+            {/* View Mode Toggle (Grid vs Agenda) */}
+            <div className="inline-flex rounded-xl bg-[#EFEBF2] p-1 border border-[#E2DBE7]">
+              <button
+                onClick={() => setViewMode("calendar")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                  viewMode === "calendar"
+                    ? "bg-white text-[#29166F] shadow-xs"
+                    : "text-[#625B69] hover:text-[#29166F]"
+                }`}
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Monthly Grid</span>
+              </button>
+              <button
+                onClick={() => setViewMode("agenda")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                  viewMode === "agenda"
+                    ? "bg-white text-[#29166F] shadow-xs"
+                    : "text-[#625B69] hover:text-[#29166F]"
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>Agenda / List</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters Bar: Event Type & Child Selector & Search */}
+        <div className="space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Child Filter (in Family Mode or multi-child access) */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+              <span className="text-xs font-bold text-[#817887] whitespace-nowrap">Filter Child:</span>
+              <button
+                onClick={() => setSelectedChildFilter("all")}
+                className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  selectedChildFilter === "all"
+                    ? "bg-[#29166F] text-white shadow-xs"
+                    : "bg-[#F1ECF6] text-[#581C87] hover:bg-[#E8E2ED]"
+                }`}
+              >
+                All Children ({pupils.length})
+              </button>
+
+              {pupils.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedChildFilter(p.id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                    selectedChildFilter === p.id
+                      ? "bg-[#581C87] text-white shadow-xs"
+                      : "bg-[#F1ECF6] text-[#581C87] hover:bg-[#E8E2ED]"
+                  }`}
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/25 text-[9px]">
+                    {p.avatarInitials}
+                  </span>
+                  <span>{p.firstName}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#817887]" />
+              <input
+                type="text"
+                placeholder="Search event, exam, deadline..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 w-full rounded-lg border border-[#DCD5E1] bg-white pl-8 pr-3 text-xs outline-none transition focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[#817887] hover:text-[#29166F]"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Event Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-xs font-bold text-[#817887] mr-1">Event Type:</span>
+            {(
+              [
+                { id: "all", label: "All Events" },
+                { id: "School Event", label: "School Events" },
+                { id: "Holiday", label: "Holidays" },
+                { id: "Test / Exam", label: "Tests & Exams" },
+                { id: "Assignment Deadline", label: "Assignment Deadlines" },
+                { id: "Fee Deadline", label: "Fee Deadlines" },
+                { id: "Sports", label: "Sports" },
+              ] as const
+            ).map((cat) => {
+              const count = cat.id === "all"
+                ? data.calendarEvents.length
+                : data.calendarEvents.filter((e) => e.category === cat.id).length;
+
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
+                    selectedCategory === cat.id
+                      ? "bg-[#581C87] text-white shadow-xs"
+                      : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+                  }`}
+                >
+                  <span>{cat.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                      selectedCategory === cat.id ? "bg-white/25 text-white" : "bg-[#F1ECF6] text-[#581C87]"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="space-y-4 py-8">
+          <div className="h-64 w-full animate-pulse rounded-2xl bg-white/70 border border-[#E5DFE9]" />
+        </div>
+      )}
+
+      {/* Error State */}
+      {hasError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+          <h4 className="font-extrabold text-base text-red-900">Failed to load calendar events</h4>
+          <p className="mt-1 text-xs text-red-600">Please retry or refresh your portal session.</p>
+          <button
+            onClick={() => setHasError(false)}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Try Again
+          </button>
+        </div>
+      )}
+
+      {/* VIEW 1: MONTHLY CALENDAR GRID (Responsive desktop/tablet) */}
+      {!isLoading && !hasError && viewMode === "calendar" && (
+        <div className="rounded-2xl border border-[#E5DFE9] bg-white shadow-xs overflow-hidden">
+          {/* Day of Week Headers */}
+          <div className="grid grid-cols-7 border-b border-[#EEE9F1] bg-[#F8F6FA] text-center text-xs font-extrabold uppercase tracking-wider text-[#581C87] py-3">
+            <span>Sun</span>
+            <span>Mon</span>
+            <span>Tue</span>
+            <span>Wed</span>
+            <span>Thu</span>
+            <span>Fri</span>
+            <span>Sat</span>
+          </div>
+
+          {/* Calendar Grid Days */}
+          <div className="grid grid-cols-7 divide-x divide-y divide-[#EEE9F1]">
+            {calendarGrid.map((cell, idx) => {
+              const hasEvents = cell.events.length > 0;
+
+              return (
+                <div
+                  key={`${cell.dateString}-${idx}`}
+                  className={`min-h-[100px] sm:min-h-[120px] p-1.5 sm:p-2 flex flex-col justify-between transition ${
+                    !cell.isCurrentMonth
+                      ? "bg-[#FAF9FB]/60 text-[#BBAFC4]"
+                      : cell.isToday
+                      ? "bg-[#FEF9C3]/25"
+                      : "bg-white hover:bg-[#FDFCFE]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold ${
+                        cell.isToday
+                          ? "bg-[#29166F] text-[#E9DB3D]"
+                          : cell.isCurrentMonth
+                          ? "text-[#29166F]"
+                          : "text-[#BBAFC4]"
+                      }`}
+                    >
+                      {cell.dayNumber}
+                    </span>
+                    {cell.isToday && (
+                      <span className="hidden sm:inline text-[9px] font-extrabold text-[#581C87] uppercase">
+                        Today
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Day Events Indicators */}
+                  <div className="mt-1 space-y-1">
+                    {cell.events.slice(0, 2).map((ev) => {
+                      const style = getCategoryStyles(ev.category);
+                      return (
+                        <button
+                          key={ev.id}
+                          onClick={() => setSelectedEvent(ev)}
+                          className={`w-full text-left truncate rounded px-1.5 py-0.5 text-[10px] font-bold border transition cursor-pointer ${style.badge}`}
+                          title={`${ev.title} (${ev.time || ""})`}
+                        >
+                          <span className="truncate block">{ev.title}</span>
+                        </button>
+                      );
+                    })}
+
+                    {cell.events.length > 2 && (
+                      <button
+                        onClick={() => setSelectedEvent(cell.events[0])}
+                        className="w-full text-center text-[10px] font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                      >
+                        +{cell.events.length - 2} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 2: MOBILE-ERGONOMIC AGENDA VIEW */}
+      {!isLoading && !hasError && (viewMode === "agenda" || calendarGrid.length === 0) && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-[#EEE9F1] bg-white p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase text-[#581C87]">Chronological Schedule</p>
+              <h3 className="text-base font-extrabold text-[#29166F]">
+                Upcoming School Milestones & Deadlines
+              </h3>
+            </div>
+            <span className="text-xs font-bold text-[#817887]">
+              {agendaEvents.length} Event{agendaEvents.length === 1 ? "" : "s"} Listed
+            </span>
+          </div>
+
+          {agendaEvents.length > 0 ? (
+            <div className="space-y-3">
+              {agendaEvents.map((ev) => {
+                const style = getCategoryStyles(ev.category);
+                return (
+                  <article
+                    key={ev.id}
+                    onClick={() => setSelectedEvent(ev)}
+                    className={`rounded-2xl border border-[#E5DFE9] bg-white p-4 sm:p-5 shadow-xs hover:border-[#581C87]/40 hover:shadow-sm transition cursor-pointer ${style.card}`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3.5">
+                        {/* Date badge */}
+                        <div className="flex flex-col items-center justify-center rounded-xl bg-[#F8F6FA] border border-[#E8E2ED] px-3 py-2 text-center shrink-0 w-16">
+                          <span className="text-lg font-extrabold text-[#29166F] leading-tight">
+                            {ev.day || ev.date.split("-")[2]}
+                          </span>
+                          <span className="text-[10px] font-extrabold uppercase text-[#581C87] tracking-wider">
+                            {ev.month || "SEP"}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold border ${style.badge}`}>
+                              {ev.category}
+                            </span>
+                            {ev.targetClass && (
+                              <span className="text-[10px] font-bold text-[#817887] bg-[#F1F5F9] px-2 py-0.5 rounded">
+                                {ev.targetClass}
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="text-base font-extrabold text-[#29166F] leading-snug">
+                            {ev.title}
+                          </h4>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#625B69]">
+                            {ev.time && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3.5 w-3.5 text-[#817887]" />
+                                <span>{ev.time}</span>
+                              </span>
+                            )}
+                            {ev.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3.5 w-3.5 text-[#817887]" />
+                                <span>{ev.location}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Affected Pupils Pill */}
+                      <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-[#EEE9F1]">
+                        {ev.affectedPupilNames && ev.affectedPupilNames.length > 0 && (
+                          <div className="flex items-center gap-1 text-[11px] font-bold text-[#581C87]">
+                            <Users className="h-3.5 w-3.5" />
+                            <span>{ev.affectedPupilNames.join(", ")}</span>
+                          </div>
+                        )}
+                        <span className="text-xs font-bold text-[#581C87] hover:underline">
+                          View details &rarr;
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-[#E5DFE9] bg-white p-12 text-center">
+              <CalendarDays className="h-12 w-12 text-[#BBAFC4] mx-auto mb-3" />
+              <h4 className="text-base font-extrabold text-[#29166F]">No events found</h4>
+              <p className="mt-1 text-xs text-[#817887]">
+                No scheduled activities match your current filter settings.
+              </p>
+              <button
+                onClick={() => {
+                  setSelectedCategory("all");
+                  setSelectedChildFilter("all");
+                  setSearchQuery("");
+                }}
+                className="mt-4 inline-flex items-center gap-1 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 py-2 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset all filters
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* EVENT DETAIL MODAL / PANEL */}
+      <AnimatePresence>
+        {selectedEvent && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#160B35]/60 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl overflow-hidden"
+            >
+              <div className="flex items-start justify-between border-b border-[#EEE9F1] pb-4">
+                <div>
+                  <span className={`inline-block rounded-md px-2.5 py-0.5 text-[10px] font-extrabold border mb-1.5 ${getCategoryStyles(selectedEvent.category).badge}`}>
+                    {selectedEvent.category}
+                  </span>
+                  <h3 className="text-lg font-extrabold text-[#29166F] leading-snug">
+                    {selectedEvent.title}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer shrink-0"
+                  aria-label="Close detail modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-4 text-xs">
+                {/* Date and Time */}
+                <div className="flex items-center gap-3 rounded-xl bg-[#F8F6FA] p-3 border border-[#EEE9F1]">
+                  <Clock className="h-4 w-4 text-[#581C87] shrink-0" />
+                  <div>
+                    <strong className="block text-sm text-[#29166F]">{selectedEvent.date}</strong>
+                    <span className="text-[#817887]">{selectedEvent.time || "All day scheduled activity"}</span>
+                  </div>
+                </div>
+
+                {/* Location */}
+                {selectedEvent.location && (
+                  <div className="flex items-center gap-3 rounded-xl bg-[#F8F6FA] p-3 border border-[#EEE9F1]">
+                    <MapPin className="h-4 w-4 text-[#581C87] shrink-0" />
+                    <div>
+                      <span className="text-[#817887] block text-[10px] uppercase font-bold">Venue / Location</span>
+                      <strong className="text-sm text-[#29166F]">{selectedEvent.location}</strong>
+                    </div>
+                  </div>
+                )}
+
+                {/* Affected Pupils */}
+                <div className="rounded-xl border border-[#EEE9F1] p-3.5 bg-[#FAF8FC]">
+                  <span className="text-[#817887] block text-[10px] uppercase font-bold mb-1.5">
+                    Target Class & Affected Pupils
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-[#29166F] bg-white border border-[#E5DFE9] px-2.5 py-1 rounded-md">
+                      {selectedEvent.targetClass || "All School Families"}
+                    </span>
+                    {selectedEvent.affectedPupilNames?.map((name) => (
+                      <span
+                        key={name}
+                        className="font-extrabold text-[#581C87] bg-[#F1ECF6] border border-[#DDD6E5] px-2.5 py-1 rounded-md"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Description */}
+                {selectedEvent.description && (
+                  <div>
+                    <span className="text-[#817887] block text-[10px] uppercase font-bold mb-1">
+                      Event Overview
+                    </span>
+                    <p className="text-sm leading-relaxed text-[#342D3A] bg-[#FDFCFE] p-3 rounded-lg border border-[#EEE9F1]">
+                      {selectedEvent.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Preparation / Notes */}
+                {selectedEvent.notes && (
+                  <div className="rounded-xl border border-[#D97706]/30 bg-[#FFFBEB] p-3 text-xs text-[#92400E]">
+                    <strong className="block text-[11px] uppercase tracking-wider font-extrabold mb-1">
+                      Parent Instructions & Notes:
+                    </strong>
+                    <p className="leading-relaxed">{selectedEvent.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 border-t border-[#EEE9F1] pt-4 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="rounded-lg border border-[#DCD5E1] bg-white px-4 py-2 text-xs font-extrabold text-[#29166F] hover:bg-[#F8F6FA] cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+/**
+ * 5. Weekly Class Timetable Component
+ */
+const Timetable: React.FC<{
+  data: ParentDashboardData;
+  onSelectChild: (pupilId: string) => void;
+}> = ({ data, onSelectChild }) => {
+  const pupils = data.pupils;
+  const activePupil = data.selectedPupil || pupils[0];
+
+  const [selectedPupilId, setSelectedPupilId] = useState<string>(activePupil.id);
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek | "All">("Monday");
+  const [searchSubject, setSearchSubject] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Active pupil derived from state
+  const currentPupil = pupils.find((p) => p.id === selectedPupilId) || activePupil;
+
+  // Handle pupil switcher
+  const handlePupilChange = (pupilId: string) => {
+    setIsLoading(true);
+    setHasError(false);
+    setTimeout(() => {
+      setSelectedPupilId(pupilId);
+      onSelectChild(pupilId);
+      setIsLoading(false);
+    }, 200);
+  };
+
+  // Get timetable entries for current pupil's class
+  const classEntries = useMemo(() => {
+    return data.timetable.filter((t) => t.class === currentPupil.class);
+  }, [data.timetable, currentPupil.class]);
+
+  // Filter entries for selected day and optional search
+  const displayedEntries = useMemo(() => {
+    return classEntries.filter((entry) => {
+      if (selectedDay !== "All" && entry.dayOfWeek !== selectedDay) {
+        return false;
+      }
+      if (searchSubject.trim()) {
+        const q = searchSubject.toLowerCase();
+        const matchesSubj = entry.subject.toLowerCase().includes(q);
+        const matchesTeacher = entry.teacher?.toLowerCase().includes(q);
+        const matchesRoom = (entry.classroom || entry.room)?.toLowerCase().includes(q);
+        if (!matchesSubj && !matchesTeacher && !matchesRoom) {
+          return false;
+        }
+      }
+      return true;
+    }).sort((a, b) => {
+      // Sort by period/time
+      return a.startTime.localeCompare(b.startTime);
+    });
+  }, [classEntries, selectedDay, searchSubject]);
+
+  // Distinct weekdays in schedule
+  const weekdays: DayOfWeek[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+  // Subject color styling helper
+  const getSubjectColor = (subject: string, isBreak?: boolean) => {
+    if (isBreak) {
+      return {
+        card: "bg-[#F8F6FA] border-[#E8E2ED] text-[#581C87]",
+        pill: "bg-[#EFEBF2] text-[#581C87]",
+      };
+    }
+    const s = subject.toLowerCase();
+    if (s.includes("math")) {
+      return { card: "bg-[#EFF6FF] border-[#BFDBFE] text-[#1E40AF]", pill: "bg-[#DBEAFE] text-[#1D4ED8]" };
+    }
+    if (s.includes("english") || s.includes("literacy") || s.includes("phonics")) {
+      return { card: "bg-[#FAF5FF] border-[#E9D5FF] text-[#6B21A8]", pill: "bg-[#F3E8FF] text-[#7E22CE]" };
+    }
+    if (s.includes("science") || s.includes("physics") || s.includes("biology")) {
+      return { card: "bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]", pill: "bg-[#D1FAE5] text-[#047857]" };
+    }
+    if (s.includes("french")) {
+      return { card: "bg-[#FFF7ED] border-[#FED7AA] text-[#9A3412]", pill: "bg-[#FFEDD5] text-[#C2410C]" };
+    }
+    if (s.includes("ict") || s.includes("robotics") || s.includes("python") || s.includes("coding")) {
+      return { card: "bg-[#F0FDFA] border-[#99F6E4] text-[#0F766E]", pill: "bg-[#CCFBF1] text-[#0D9488]" };
+    }
+    if (s.includes("art") || s.includes("music") || s.includes("creative")) {
+      return { card: "bg-[#FDF2F8] border-[#FBCFE8] text-[#9D174D]", pill: "bg-[#FCE7F3] text-[#BE185D]" };
+    }
+    if (s.includes("sports") || s.includes("physical") || s.includes("gym")) {
+      return { card: "bg-[#FEF9C3] border-[#FDE68A] text-[#854D0E]", pill: "bg-[#FEF08A] text-[#A16207]" };
+    }
+    return { card: "bg-white border-[#E5DFE9] text-[#29166F]", pill: "bg-[#F1ECF6] text-[#581C87]" };
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Pupil & Class Banner */}
+      <section className="overflow-hidden rounded-2xl bg-[#29166F] text-white p-6 sm:p-7 shadow-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#581C87] text-xl font-extrabold text-white border-2 border-white/20 shadow-inner">
+              {currentPupil.avatarInitials}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-[#E9DB3D] px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#29166F]">
+                  {currentPupil.class} Class Schedule
+                </span>
+                <span className="text-xs text-white/70">
+                  Admission No: <strong className="text-white">{currentPupil.admissionNumber}</strong>
+                </span>
+              </div>
+              <h2 className="mt-1 text-2xl font-extrabold text-white">
+                {currentPupil.fullName}
+              </h2>
+              <p className="text-xs text-white/75 mt-0.5">
+                Lead Teacher: <strong>{currentPupil.classTeacher}</strong> &bull; House: {currentPupil.house}
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Child Switcher Buttons */}
+          <div className="rounded-xl bg-[#22105F] p-2 border border-white/10 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase text-white/60 px-2">Switch Child:</span>
+            {pupils.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => handlePupilChange(p.id)}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                  p.id === currentPupil.id
+                    ? "bg-[#E9DB3D] text-[#29166F] shadow-xs"
+                    : "bg-white/10 text-white hover:bg-white/20"
+                }`}
+              >
+                <span>{p.firstName}</span>
+                <span className="text-[10px] opacity-75">({p.class})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Controls Bar: Day Selector Tabs & Search */}
+      <section className="rounded-2xl border border-[#E5DFE9] bg-white p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Day Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <button
+            onClick={() => setSelectedDay("Monday")}
+            className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer whitespace-nowrap ${
+              selectedDay === "Monday"
+                ? "bg-[#581C87] text-white shadow-xs"
+                : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+            }`}
+          >
+            Today (Mon)
+          </button>
+
+          {weekdays.map((day) => (
+            <button
+              key={day}
+              onClick={() => setSelectedDay(day)}
+              className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer whitespace-nowrap ${
+                selectedDay === day
+                  ? "bg-[#581C87] text-white shadow-xs"
+                  : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+              }`}
+            >
+              {day}
+            </button>
+          ))}
+
+          <button
+            onClick={() => setSelectedDay("All")}
+            className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer whitespace-nowrap ${
+              selectedDay === "All"
+                ? "bg-[#29166F] text-white shadow-xs"
+                : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+            }`}
+          >
+            Full Week
+          </button>
+        </div>
+
+        {/* Subject Filter */}
+        <div className="relative sm:w-60">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#817887]" />
+          <input
+            type="text"
+            placeholder="Search subject or teacher..."
+            value={searchSubject}
+            onChange={(e) => setSearchSubject(e.target.value)}
+            className="h-9 w-full rounded-lg border border-[#DCD5E1] bg-white pl-8 pr-3 text-xs outline-none transition focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15"
+          />
+        </div>
+      </section>
+
+      {/* Loading Skeleton */}
+      {isLoading && (
+        <div className="space-y-3 py-6">
+          <div className="h-20 w-full animate-pulse rounded-2xl bg-white border border-[#E5DFE9]" />
+          <div className="h-20 w-full animate-pulse rounded-2xl bg-white border border-[#E5DFE9]" />
+        </div>
+      )}
+
+      {/* Error State */}
+      {hasError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+          <h4 className="font-extrabold text-base text-red-900">Unable to load timetable</h4>
+          <p className="mt-1 text-xs text-red-600">Please retry or select another child.</p>
+          <button
+            onClick={() => setHasError(false)}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Try Again
+          </button>
+        </div>
+      )}
+
+      {/* TIMETABLE CONTENT: DAY VIEW & FULL WEEK VIEW */}
+      {!isLoading && !hasError && (
+        <div className="space-y-4">
+          {displayedEntries.length > 0 ? (
+            <div className="space-y-3">
+              {displayedEntries.map((entry) => {
+                const colors = getSubjectColor(entry.subject, entry.isBreak);
+
+                return (
+                  <article
+                    key={entry.id}
+                    className={`rounded-2xl border p-4 sm:p-5 shadow-xs transition hover:shadow-sm ${colors.card}`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3.5">
+                        {/* Period Time Badge */}
+                        <div className="rounded-xl bg-white border border-[#E5DFE9] px-3 py-2 text-center shrink-0 w-28 shadow-2xs">
+                          <span className="block text-xs font-mono font-extrabold text-[#29166F]">
+                            {entry.startTime}
+                          </span>
+                          <span className="block text-[10px] text-[#817887]">to {entry.endTime}</span>
+                        </div>
+
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            {entry.isBreak ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-[#FAF5FF] px-2 py-0.5 text-[10px] font-extrabold text-[#581C87] border border-[#DDD6E5]">
+                                <Coffee className="h-3 w-3" /> Interval Recess
+                              </span>
+                            ) : (
+                              <span className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold ${colors.pill}`}>
+                                Period {entry.period} &bull; {entry.dayOfWeek}
+                              </span>
+                            )}
+                          </div>
+
+                          <h3 className="text-base font-extrabold leading-snug">
+                            {entry.subject}
+                          </h3>
+
+                          {/* Teacher and Room Info */}
+                          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-85">
+                            {entry.teacher && (
+                              <span className="flex items-center gap-1">
+                                <GraduationCap className="h-3.5 w-3.5" />
+                                <span>{entry.teacher}</span>
+                              </span>
+                            )}
+                            {(entry.classroom || entry.room) && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3.5 w-3.5" />
+                                <span>{entry.classroom || entry.room}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Tag */}
+                      <div className="flex items-center gap-2 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-[#EEE9F1]">
+                        <span className="text-xs font-bold text-[#817887]">
+                          {entry.class}
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-[#E5DFE9] bg-white p-12 text-center">
+              <Clock className="h-12 w-12 text-[#BBAFC4] mx-auto mb-3" />
+              <h4 className="text-base font-extrabold text-[#29166F]">No scheduled periods</h4>
+              <p className="mt-1 text-xs text-[#817887]">
+                No timetable entries found for {selectedDay} matching &ldquo;{searchSubject}&rdquo;.
+              </p>
+              <button
+                onClick={() => {
+                  setSelectedDay("Monday");
+                  setSearchSubject("");
+                }}
+                className="mt-4 inline-flex items-center gap-1 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 py-2 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset filter
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

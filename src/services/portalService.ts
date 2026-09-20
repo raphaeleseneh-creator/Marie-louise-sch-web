@@ -63,7 +63,7 @@ export interface ParentPortalService {
   getInvoices(pupilId: string): Promise<Invoice[]>;
   getPayments(pupilId: string): Promise<Payment[]>;
   getTimetable(className: string): Promise<TimetableEntry[]>;
-  getCalendarEvents(): Promise<CalendarEvent[]>;
+  getCalendarEvents(pupilId?: string, category?: string): Promise<CalendarEvent[]>;
   getNotices(): Promise<Notice[]>;
   getAbsenceReports(pupilId: string): Promise<AbsenceReport[]>;
   getPaymentProofs(pupilId: string): Promise<PaymentProof[]>;
@@ -265,8 +265,18 @@ class LocalParentPortalService implements ParentPortalService {
     return this.timetables.filter((t) => t.class === className);
   }
 
-  async getCalendarEvents(): Promise<CalendarEvent[]> {
-    return [...this.calendarEvents];
+  async getCalendarEvents(pupilId?: string, category?: string): Promise<CalendarEvent[]> {
+    return this.calendarEvents.filter((event) => {
+      if (pupilId && pupilId !== "all" && pupilId !== "family") {
+        if (event.pupilIds && event.pupilIds.length > 0 && !event.pupilIds.includes(pupilId)) {
+          return false;
+        }
+      }
+      if (category && category !== "all" && event.category !== category) {
+        return false;
+      }
+      return true;
+    });
   }
 
   async getNotices(): Promise<Notice[]> {
