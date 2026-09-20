@@ -295,8 +295,11 @@ class LocalParentPortalService implements ParentPortalService {
     return [...this.absenceReports];
   }
 
-  async getPaymentProofs(pupilId: string): Promise<PaymentProof[]> {
-    return this.paymentProofs.filter((p) => p.pupilId === pupilId);
+  async getPaymentProofs(pupilId?: string): Promise<PaymentProof[]> {
+    if (pupilId && pupilId !== "all" && pupilId !== "family") {
+      return this.paymentProofs.filter((p) => p.pupilId === pupilId);
+    }
+    return [...this.paymentProofs];
   }
 
   async submitAbsenceReport(input: CreateAbsenceReportInput): Promise<AbsenceReport> {
@@ -322,20 +325,26 @@ class LocalParentPortalService implements ParentPortalService {
   }
 
   async submitPaymentProof(input: CreatePaymentProofInput): Promise<PaymentProof> {
+    const randomSeq = Math.floor(1000 + Math.random() * 9000);
     const newProof: PaymentProof = {
       id: `recPrf${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`,
+      referenceNumber: `PRF-2026-${randomSeq}`,
       invoiceId: input.invoiceId,
       pupilId: input.pupilId,
       parentId: input.parentId,
       amount: input.amount,
       currency: "NGN",
       paymentDate: input.paymentDate,
+      paymentMethod: input.paymentMethod || "Bank Transfer",
       bankName: input.bankName,
-      referenceNumber: input.referenceNumber,
+      transactionReference: input.referenceNumber,
+      receiptFileName: input.receiptFileName,
+      receiptFileSize: input.receiptFileSize,
       receiptFileUrl: input.receiptFileUrl,
       notes: input.notes,
-      status: "Submitted",
+      status: "Pending Review",
       uploadedAt: new Date().toISOString(),
+      reviewRemarks: "Proof received and queued for bank statement credit matching by bursary registry.",
     };
 
     this.paymentProofs.unshift(newProof);

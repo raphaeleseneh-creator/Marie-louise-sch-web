@@ -19,7 +19,14 @@ export type AbsenceStatus =
   | "More Information Required"
   | "Under Review"
   | "Declined";
-export type PaymentProofStatus = "Submitted" | "Under Verification" | "Approved" | "Declined";
+export type PaymentProofStatus =
+  | "Pending Review"
+  | "Verified"
+  | "Rejected"
+  | "Submitted"
+  | "Under Verification"
+  | "Approved"
+  | "Declined";
 export type DayOfWeek = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
 export type PortalView =
   | "overview"
@@ -258,23 +265,37 @@ export interface AbsenceReport {
   acknowledgementNote?: string;
 }
 
+export type PaymentProofMethod =
+  | "Bank Transfer"
+  | "Mobile Banking App"
+  | "USSD"
+  | "POS / Branch Teller"
+  | "Direct Debit";
+
 /**
  * 11. Payment Proof Model (Airtable: PaymentProofs)
  */
 export interface PaymentProof {
   id: AirtableRecordId;
+  referenceNumber: string; // Internal tracking reference e.g. "PRF-2026-9281"
   invoiceId: AirtableRecordId;
   pupilId: AirtableRecordId;
   parentId: AirtableRecordId;
   amount: number;
   currency: string;
   paymentDate: string;
+  paymentMethod: PaymentProofMethod;
   bankName: string;
-  referenceNumber: string;
+  transactionReference: string; // Bank session / transaction reference
+  receiptFileName?: string;
+  receiptFileSize?: string;
   receiptFileUrl?: string;
   notes?: string;
   status: PaymentProofStatus;
   uploadedAt: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  reviewRemarks?: string;
 }
 
 /**
@@ -345,7 +366,10 @@ export interface CreatePaymentProofInput {
   amount: number;
   bankName: string;
   paymentDate: string;
-  referenceNumber: string;
+  paymentMethod?: PaymentProofMethod;
+  referenceNumber: string; // Bank transaction reference
+  receiptFileName?: string;
+  receiptFileSize?: string;
   receiptFileUrl?: string;
   notes?: string;
 }

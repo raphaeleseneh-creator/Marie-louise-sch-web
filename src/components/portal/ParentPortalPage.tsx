@@ -40,6 +40,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Tag,
@@ -50,6 +51,7 @@ import {
 } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
 import { portalService } from "../../services/portalService";
+import { PaymentProofModal } from "./PaymentProofModal";
 import type {
   ParentDashboardData,
   PortalView,
@@ -63,6 +65,9 @@ import type {
   FeeCategory,
   InvoiceItem,
   InvoiceStatus,
+  PaymentProof,
+  PaymentProofStatus,
+  PaymentProofMethod,
   CalendarEvent,
   CalendarEventCategory,
   TimetableEntry,
@@ -99,6 +104,8 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
   const [activePupilId, setActivePupilId] = useState<string>("recPup001Kamsi");
   const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
+  const [proofModalInitialInvoiceId, setProofModalInitialInvoiceId] = useState<string | undefined>(undefined);
+  const [proofModalInitialPupilId, setProofModalInitialPupilId] = useState<string | undefined>(undefined);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
 
@@ -228,38 +235,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     setTimeout(() => setActionSuccess(null), 5000);
   };
 
-  const handleProofSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!dashboardData) return;
-    const form = new FormData(e.currentTarget);
-    const invoiceId = form.get("invoiceId") as string;
-    const selectedInv =
-      dashboardData.invoices.find((i) => i.id === invoiceId) || dashboardData.invoices[0];
-    const amount = Number(form.get("amount")) || 0;
-    const bankName = form.get("bankName") as string;
-    const paymentDate = form.get("paymentDate") as string;
-    const referenceNumber = form.get("referenceNumber") as string;
-    const notes = form.get("notes") as string;
-
-    await portalService.submitPaymentProof({
-      invoiceId: selectedInv?.id || invoiceId,
-      pupilId:
-        selectedInv?.pupilId ||
-        dashboardData.selectedPupil?.id ||
-        dashboardData.pupils[0].id,
-      parentId: dashboardData.parent.id,
-      amount,
-      bankName,
-      paymentDate,
-      referenceNumber,
-      notes,
-    });
-
-    await loadPortalData(activePupilId);
-    setIsProofModalOpen(false);
-    setActionSuccess("Payment proof uploaded for bursary verification.");
-    setTimeout(() => setActionSuccess(null), 5000);
-  };
+  // Payment proof submissions are managed via PaymentProofModal directly
 
   if (!isSignedIn) {
     return (
@@ -775,7 +751,11 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               {activeView === "fees" && dashboardData ? (
                 <Fees
                   data={dashboardData}
-                  onOpenProofModal={() => setIsProofModalOpen(true)}
+                  onOpenProofModal={(invoiceId, pupilId) => {
+                    setProofModalInitialInvoiceId(invoiceId);
+                    setProofModalInitialPupilId(pupilId);
+                    setIsProofModalOpen(true);
+                  }}
                   onSelectChild={handleSwitchPupil}
                   onNotify={(msg) => setActionSuccess(msg)}
                 />
@@ -1019,127 +999,21 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
         )}
       </AnimatePresence>
 
-      {/* Payment Proof Modal */}
-      <AnimatePresence>
-        {isProofModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#160B35]/50 p-4 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-[#EEE9F1] pb-4">
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">Bursary & Accounts</p>
-                  <h3 className="text-lg font-extrabold text-[#29166F]">Submit Bank Payment Proof</h3>
-                </div>
-                <button
-                  onClick={() => setIsProofModalOpen(false)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer"
-                  aria-label="Close modal"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleProofSubmit} className="mt-5 space-y-4">
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[#342D3A]">Select Invoice</label>
-                  <select
-                    name="invoiceId"
-                    required
-                    className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                  >
-                    {dashboardData?.invoices.map((inv) => {
-                      const child = dashboardData.pupils.find((p) => p.id === inv.pupilId);
-                      return (
-                        <option key={inv.id} value={inv.id}>
-                          {child ? `${child.firstName}: ` : ""}{inv.invoiceNumber} — {inv.title} (₦{inv.amountDue.toLocaleString()})
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-[#342D3A]">Amount Paid (₦)</label>
-                    <input
-                      type="number"
-                      name="amount"
-                      required
-                      placeholder="e.g. 485000"
-                      defaultValue={dashboardData?.invoices[0]?.amountDue || 485000}
-                      className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-[#342D3A]">Payment Date</label>
-                    <input
-                      type="date"
-                      name="paymentDate"
-                      required
-                      defaultValue={new Date().toISOString().split("T")[0]}
-                      className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-[#342D3A]">Bank Name</label>
-                    <input
-                      type="text"
-                      name="bankName"
-                      required
-                      placeholder="e.g. GTBank / Access"
-                      defaultValue="Guaranty Trust Bank"
-                      className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-[#342D3A]">Bank Reference / Session</label>
-                    <input
-                      type="text"
-                      name="referenceNumber"
-                      required
-                      placeholder="e.g. FT-GTB-8921441"
-                      className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[#342D3A]">Notes / Depositor Name</label>
-                  <input
-                    type="text"
-                    name="notes"
-                    placeholder="e.g. Paid by Chidinma Chukwuma via mobile transfer"
-                    className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsProofModalOpen(false)}
-                    className="h-11 rounded-lg border border-[#DCD5E1] px-4 text-xs font-bold text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="h-11 rounded-lg bg-[#581C87] px-5 text-xs font-extrabold text-white hover:bg-[#29166F] cursor-pointer"
-                  >
-                    Submit Proof
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Payment Proof 3-Step Submission Modal */}
+      {dashboardData && (
+        <PaymentProofModal
+          isOpen={isProofModalOpen}
+          onClose={() => setIsProofModalOpen(false)}
+          data={dashboardData}
+          initialInvoiceId={proofModalInitialInvoiceId}
+          initialPupilId={proofModalInitialPupilId}
+          onSuccess={async (newProof) => {
+            await loadPortalData(activePupilId);
+            setActionSuccess(`Payment proof ${newProof.referenceNumber} recorded for Bursary verification.`);
+            setTimeout(() => setActionSuccess(null), 6000);
+          }}
+        />
+      )}
     </main>
   );
 };
@@ -3350,7 +3224,7 @@ const formatNaira = (amount: number, showKobo = true): string => {
  */
 const Fees: React.FC<{
   data: ParentDashboardData;
-  onOpenProofModal: () => void;
+  onOpenProofModal: (invoiceId?: string, pupilId?: string) => void;
   onSelectChild: (pupilId: string) => void;
   onNotify?: (message: string) => void;
 }> = ({ data, onOpenProofModal, onSelectChild, onNotify }) => {
@@ -3359,9 +3233,12 @@ const Fees: React.FC<{
   const activePupil = data.selectedPupil;
 
   // Navigation & filtering states
-  const [activeTab, setActiveTab] = useState<"invoices" | "payments">("invoices");
+  const [activeTab, setActiveTab] = useState<"invoices" | "payments" | "proofs">("invoices");
   const [selectedTerm, setSelectedTerm] = useState<string>("First Term 2026/2027");
   const [statusFilter, setStatusFilter] = useState<"all" | "Outstanding" | "Part-paid" | "Overdue" | "Paid">("all");
+  const [proofStatusFilter, setProofStatusFilter] = useState<"all" | "Pending Review" | "Verified" | "Rejected">("all");
+  const [proofPupilFilter, setProofPupilFilter] = useState<string>("all");
+  const [proofSearchQuery, setProofSearchQuery] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"due-soon" | "due-late" | "amount-high" | "amount-low">("due-soon");
   const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set(["recInv001Term1"]));
@@ -3600,6 +3477,65 @@ const Fees: React.FC<{
     });
   }, [data.payments, data.invoices, selectedTerm, searchQuery, pupils]);
 
+  // Status counts for Payment Proof submissions
+  const proofStatusCounts = useMemo(() => {
+    return {
+      all: data.paymentProofs.length,
+      "Pending Review": data.paymentProofs.filter(
+        (p) => p.status === "Pending Review" || p.status === "Submitted" || p.status === "Under Verification"
+      ).length,
+      Verified: data.paymentProofs.filter((p) => p.status === "Verified" || p.status === "Approved").length,
+      Rejected: data.paymentProofs.filter((p) => p.status === "Rejected" || p.status === "Declined").length,
+    };
+  }, [data.paymentProofs]);
+
+  // Filtered payment proofs
+  const filteredProofs = useMemo(() => {
+    return data.paymentProofs.filter((proof) => {
+      // Child filter
+      if (proofPupilFilter !== "all" && proof.pupilId !== proofPupilFilter) {
+        return false;
+      }
+
+      // Status filter
+      if (proofStatusFilter !== "all") {
+        const normalized =
+          proof.status === "Approved"
+            ? "Verified"
+            : proof.status === "Declined"
+            ? "Rejected"
+            : proof.status === "Submitted" || proof.status === "Under Verification"
+            ? "Pending Review"
+            : proof.status;
+
+        if (normalized !== proofStatusFilter) {
+          return false;
+        }
+      }
+
+      // Search query
+      if (proofSearchQuery.trim()) {
+        const q = proofSearchQuery.toLowerCase();
+        const child = pupils.find((p) => p.id === proof.pupilId);
+        const inv = data.invoices.find((i) => i.id === proof.invoiceId);
+        const matchesRef = proof.referenceNumber?.toLowerCase().includes(q);
+        const matchesTrx = proof.transactionReference?.toLowerCase().includes(q);
+        const matchesBank = proof.bankName?.toLowerCase().includes(q);
+        const matchesNotes = proof.notes?.toLowerCase().includes(q);
+        const matchesChild = child?.fullName?.toLowerCase().includes(q);
+        const matchesInv =
+          inv?.invoiceNumber?.toLowerCase().includes(q) ||
+          inv?.title?.toLowerCase().includes(q);
+
+        if (!matchesRef && !matchesTrx && !matchesBank && !matchesNotes && !matchesChild && !matchesInv) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [data.paymentProofs, data.invoices, proofPupilFilter, proofStatusFilter, proofSearchQuery, pupils]);
+
   // Aggregate financial metrics for current view
   const aggregateMetrics = useMemo(() => {
     const activeInvoices = selectedTerm === "all"
@@ -3728,7 +3664,7 @@ const Fees: React.FC<{
           </span>
         </div>
         <button
-          onClick={onOpenProofModal}
+          onClick={() => onOpenProofModal()}
           className="inline-flex items-center gap-1 text-[11px] font-extrabold text-[#B45309] hover:underline cursor-pointer shrink-0"
         >
           <Plus className="h-3 w-3" /> Submit offline transfer proof
@@ -3824,7 +3760,7 @@ const Fees: React.FC<{
             </button>
             <span className="text-white/30 hidden sm:inline">|</span>
             <button
-              onClick={onOpenProofModal}
+              onClick={() => onOpenProofModal()}
               className="inline-flex items-center gap-1.5 font-bold text-white/80 hover:text-[#E9DB3D] hover:underline cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" /> Upload Bank Proof
@@ -4012,6 +3948,23 @@ const Fees: React.FC<{
                 activeTab === "payments" ? "bg-[#087A50] text-white" : "bg-[#DDD6E5] text-[#087A50]"
               }`}>
                 {filteredPayments.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("proofs")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-extrabold transition cursor-pointer ${
+                activeTab === "proofs"
+                  ? "bg-white text-[#29166F] shadow-xs"
+                  : "text-[#625B69] hover:text-[#29166F]"
+              }`}
+            >
+              <FileCheck2 className="h-4 w-4" />
+              <span>Payment Proof Submissions</span>
+              <span className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "proofs" ? "bg-[#B45309] text-white" : "bg-[#DDD6E5] text-[#B45309]"
+              }`}>
+                {data.paymentProofs.length}
               </span>
             </button>
           </div>
@@ -4335,7 +4288,7 @@ const Fees: React.FC<{
                             <span>Pay fees online</span>
                           </button>
                           <button
-                            onClick={onOpenProofModal}
+                            onClick={() => onOpenProofModal(inv.id, inv.pupilId)}
                             className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-3.5 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
                           >
                             <Plus className="h-3.5 w-3.5" />
@@ -4384,7 +4337,7 @@ const Fees: React.FC<{
                 </p>
               </div>
               <button
-                onClick={onOpenProofModal}
+                onClick={() => onOpenProofModal()}
                 className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-3.5 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" /> Submit payment proof
@@ -4462,7 +4415,7 @@ const Fees: React.FC<{
 
           {/* Submitted Payment Proofs Section */}
           <div className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs">
-            <div className="flex items-center justify-between border-b border-[#EEE9F1] pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#EEE9F1] pb-4 gap-2">
               <div>
                 <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
                   Electronic Transfer Submissions
@@ -4471,18 +4424,29 @@ const Fees: React.FC<{
                   Submitted Bank Proofs Awaiting Verification
                 </h3>
               </div>
-              <button
-                onClick={onOpenProofModal}
-                className="inline-flex items-center gap-1 text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" /> Submit another proof
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveTab("proofs")}
+                  className="text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                >
+                  View full submission history &rarr;
+                </button>
+                <button
+                  onClick={() => onOpenProofModal()}
+                  className="inline-flex items-center gap-1 text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Submit another proof
+                </button>
+              </div>
             </div>
 
             {data.paymentProofs.length > 0 ? (
               <div className="mt-4 space-y-3">
                 {data.paymentProofs.map((proof) => {
                   const child = pupils.find((p) => p.id === proof.pupilId);
+                  const isVerified = proof.status === "Verified" || proof.status === "Approved";
+                  const isRejected = proof.status === "Rejected" || proof.status === "Declined";
+
                   return (
                     <div
                       key={proof.id}
@@ -4491,6 +4455,9 @@ const Fees: React.FC<{
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-extrabold text-[#29166F]">{proof.bankName}</span>
+                          <span className="font-mono text-[11px] font-bold text-[#581C87] bg-[#F3E8FF] px-1.5 py-0.2 rounded">
+                            {proof.referenceNumber}
+                          </span>
                           {child && (
                             <span className="text-[10px] bg-[#E8E2ED] text-[#581C87] font-bold px-2 py-0.5 rounded">
                               {child.firstName} ({child.class})
@@ -4498,7 +4465,7 @@ const Fees: React.FC<{
                           )}
                         </div>
                         <p className="text-[#625B69] mt-1">
-                          Transfer Ref: <strong className="font-mono text-[#29166F]">{proof.referenceNumber}</strong> &bull; Amount:{" "}
+                          Transfer Ref: <strong className="font-mono text-[#29166F]">{proof.transactionReference}</strong> &bull; Amount:{" "}
                           <strong className="text-[#087A50]">{formatNaira(proof.amount)}</strong> on {proof.paymentDate}
                         </p>
                         {proof.notes && (
@@ -4507,7 +4474,22 @@ const Fees: React.FC<{
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className="rounded-full bg-[#E5F7ED] px-3 py-1 font-extrabold text-[#087A50]">
+                        <span
+                          className={`rounded-full px-3 py-1 font-extrabold text-[11px] inline-flex items-center gap-1 ${
+                            isVerified
+                              ? "bg-[#E5F7ED] text-[#087A50] border border-[#087A50]/20"
+                              : isRejected
+                              ? "bg-[#FEF2F2] text-[#B91C1C] border border-[#EF4444]/25"
+                              : "bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/20"
+                          }`}
+                        >
+                          {isVerified ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : isRejected ? (
+                            <AlertCircle className="h-3 w-3" />
+                          ) : (
+                            <Clock className="h-3 w-3" />
+                          )}
                           {proof.status}
                         </span>
                       </div>
@@ -4519,6 +4501,326 @@ const Fees: React.FC<{
               <p className="mt-4 text-xs text-[#817887]">No pending transfer proofs under review.</p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* TAB 3: Payment Proofs Submissions & History */}
+      {!isLoadingTerm && !hasError && activeTab === "proofs" && (
+        <div className="space-y-6">
+          {/* Critical Demonstration & Storage Notice */}
+          <div className="rounded-xl border border-[#D97706]/30 bg-[#FFFBEB] p-4 text-xs text-[#92400E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <ShieldAlert className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                <strong>Demonstration Payment Proofs Pipeline:</strong> These submissions model the Airtable <code>PaymentProofs</code> table. Documents and references are stored in local demonstration memory and <strong>have not been sent</strong> to live bursary servers or cloud storage.
+              </span>
+            </div>
+            <button
+              onClick={() => onOpenProofModal()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#581C87] px-3.5 py-1.5 text-xs font-extrabold text-white hover:bg-[#29166F] transition cursor-pointer shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" /> Submit New Proof
+            </button>
+          </div>
+
+          {/* Proof Filters and Controls */}
+          <div className="rounded-2xl border border-[#E5DFE9] bg-white p-5 shadow-xs space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Status Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: "all", label: "All Proofs", count: proofStatusCounts.all, color: "" },
+                    { id: "Pending Review", label: "Pending Review", count: proofStatusCounts["Pending Review"], color: "bg-[#FEF3C7] text-[#92400E]" },
+                    { id: "Verified", label: "Verified", count: proofStatusCounts.Verified, color: "bg-[#E5F7ED] text-[#087A50]" },
+                    { id: "Rejected", label: "Rejected", count: proofStatusCounts.Rejected, color: "bg-[#FEF2F2] text-[#B91C1C]" },
+                  ] as const
+                ).map((tab) => {
+                  const isActive = proofStatusFilter === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setProofStatusFilter(tab.id)}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                        isActive
+                          ? "bg-[#29166F] text-white shadow-xs"
+                          : "bg-[#F4F1F7] text-[#625B69] hover:bg-[#EAE4F0] hover:text-[#29166F]"
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                          isActive ? "bg-white/20 text-white" : tab.color || "bg-white text-[#625B69]"
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Child Filter Dropdown */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="proof-child-filter" className="text-xs font-bold text-[#625B69] whitespace-nowrap">
+                  Child:
+                </label>
+                <div className="relative min-w-[180px]">
+                  <select
+                    id="proof-child-filter"
+                    value={proofPupilFilter}
+                    onChange={(e) => setProofPupilFilter(e.target.value)}
+                    className="h-9 w-full appearance-none rounded-lg border border-[#DCD5E1] bg-white pl-3 pr-8 text-xs font-bold text-[#29166F] shadow-2xs outline-none transition focus:border-[#581C87] cursor-pointer"
+                  >
+                    <option value="all">All Linked Pupils</option>
+                    {pupils.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.fullName} ({p.class})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#817887]" />
+                </div>
+              </div>
+            </div>
+
+            {/* Search Input Bar */}
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#817887]" />
+              <input
+                type="text"
+                value={proofSearchQuery}
+                onChange={(e) => setProofSearchQuery(e.target.value)}
+                placeholder="Search by reference (e.g. PRF-2026-9281), bank name, transaction ID, or student..."
+                className="h-10 w-full rounded-xl border border-[#DCD5E1] bg-[#FDFCFE] pl-9 pr-8 text-xs text-[#29166F] placeholder-[#817887] outline-none transition focus:border-[#581C87] focus:bg-white"
+              />
+              {proofSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setProofSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[#817887] hover:text-[#29166F]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Proof Cards List */}
+          {filteredProofs.length > 0 ? (
+            <div className="space-y-4">
+              {filteredProofs.map((proof) => {
+                const child = pupils.find((p) => p.id === proof.pupilId);
+                const inv = data.invoices.find((i) => i.id === proof.invoiceId);
+                const isPending = proof.status === "Pending Review" || proof.status === "Submitted" || proof.status === "Under Verification";
+                const isVerified = proof.status === "Verified" || proof.status === "Approved";
+                const isRejected = proof.status === "Rejected" || proof.status === "Declined";
+
+                return (
+                  <article
+                    key={proof.id}
+                    className="rounded-2xl border border-[#E5DFE9] bg-white overflow-hidden shadow-xs hover:border-[#D0C4DB] transition"
+                  >
+                    {/* Header Strip with Reference & Status */}
+                    <div className="bg-[#F8F6FA] px-5 py-3.5 border-b border-[#EEE9F1] flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="font-mono text-xs font-extrabold text-[#29166F] bg-white px-2.5 py-1 rounded-md border border-[#DCD5E1] shadow-2xs">
+                          {proof.referenceNumber}
+                        </span>
+                        {child && (
+                          <span className="text-xs bg-[#E8E2ED] text-[#29166F] font-bold px-2.5 py-0.5 rounded-md">
+                            {child.fullName} ({child.class})
+                          </span>
+                        )}
+                        <span className="text-[11px] text-[#817887]">
+                          Submitted {new Date(proof.uploadedAt).toLocaleDateString("en-NG", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isVerified && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] border border-[#087A50]/20 px-3 py-1 text-xs font-extrabold text-[#087A50]">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Verified &amp; Settled
+                          </span>
+                        )}
+                        {isPending && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF3C7] border border-[#D97706]/20 px-3 py-1 text-xs font-extrabold text-[#92400E]">
+                            <Clock className="h-3.5 w-3.5" /> Pending Bursary Review
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF2F2] border border-[#EF4444]/25 px-3 py-1 text-xs font-extrabold text-[#B91C1C]">
+                            <AlertCircle className="h-3.5 w-3.5" /> Proof Rejected
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Content Grid */}
+                    <div className="p-5 sm:p-6 grid md:grid-cols-2 gap-6">
+                      {/* Left Column: Pupil, Invoice, File */}
+                      <div className="space-y-3.5">
+                        <div>
+                          <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#817887]">
+                            Allocated Bill / Invoice
+                          </p>
+                          <p className="text-sm font-extrabold text-[#29166F] mt-0.5">
+                            {inv ? `${inv.invoiceNumber} — ${inv.title}` : "General School Fee Schedule"}
+                          </p>
+                          {inv && (
+                            <p className="text-xs text-[#817887] mt-0.5">
+                              Term: {inv.term} &bull; Total Billed: {formatNaira(inv.amountDue)}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Attached Proof Document Card */}
+                        <div>
+                          <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#817887] mb-1">
+                            Attached Proof Document
+                          </p>
+                          <div className="flex items-center gap-3 rounded-xl border border-[#DCD5E1] bg-[#FBF9FD] p-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#581C87] text-white">
+                              <FileText className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-extrabold text-[#29166F] truncate">
+                                {proof.receiptFileName || "Bank_Transfer_Advice.pdf"}
+                              </p>
+                              <p className="text-[11px] text-[#817887]">
+                                {proof.receiptFileSize || "480 KB"} &bull; Local demonstration placeholder
+                              </p>
+                            </div>
+                            <span className="text-[11px] font-bold text-[#581C87] bg-white px-2 py-0.5 rounded border border-[#DCD5E1]">
+                              Attached
+                            </span>
+                          </div>
+                        </div>
+
+                        {proof.notes && (
+                          <div className="rounded-lg bg-[#F8F6FA] p-2.5 text-xs text-[#625B69]">
+                            <span className="font-bold text-[#342D3A]">Depositor Note: </span>
+                            <span className="italic">&ldquo;{proof.notes}&rdquo;</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right Column: Financial Details & Bursary Remarks */}
+                      <div className="space-y-3.5 flex flex-col justify-between">
+                        <div className="grid grid-cols-2 gap-3 bg-[#FBF9FD] p-3.5 rounded-xl border border-[#EEE9F1]">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                              Amount Paid
+                            </span>
+                            <p className="text-lg font-extrabold text-[#087A50] mt-0.5">
+                              {formatNaira(proof.amount)}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                              Payment Date
+                            </span>
+                            <p className="text-xs font-bold text-[#29166F] mt-0.5">
+                              {proof.paymentDate}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                              Payment Method
+                            </span>
+                            <p className="text-xs font-bold text-[#29166F] mt-0.5">
+                              {proof.paymentMethod || "Bank Transfer"}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                              Bank Reference
+                            </span>
+                            <p className="text-xs font-mono font-bold text-[#581C87] truncate mt-0.5" title={proof.transactionReference}>
+                              {proof.transactionReference}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status Specific Bursary Remark Box */}
+                        {isVerified && (
+                          <div className="rounded-xl border border-[#087A50]/20 bg-[#E5F7ED]/60 p-3.5 text-xs text-[#087A50]">
+                            <div className="flex items-start gap-2">
+                              <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="font-extrabold">
+                                  {proof.verifiedBy || "Verified by Senior Bursar"}
+                                  {proof.verifiedAt ? ` on ${new Date(proof.verifiedAt).toLocaleDateString("en-NG", { month: "short", day: "numeric" })}` : ""}
+                                </p>
+                                <p className="mt-0.5 text-[11px] leading-relaxed">
+                                  {proof.reviewRemarks || "Verified against school bank clearing ledger. Official receipt credited."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {isRejected && (
+                          <div className="rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] p-3.5 text-xs text-[#B91C1C] space-y-2">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-[#EF4444]" />
+                              <div>
+                                <p className="font-extrabold">Bursary Clearing Desk Remark:</p>
+                                <p className="mt-0.5 text-[11px] leading-relaxed text-[#7F1D1D]">
+                                  {proof.reviewRemarks || "Payment could not be verified on the bank statement. Please verify transaction reference."}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="pt-1 flex justify-end">
+                              <button
+                                onClick={() => onOpenProofModal(proof.invoiceId, proof.pupilId)}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#B91C1C] px-3 py-1.5 text-xs font-extrabold text-white hover:bg-[#991B1B] transition cursor-pointer shadow-xs"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" /> Submit Revised Proof
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {isPending && (
+                          <div className="rounded-xl border border-[#D97706]/20 bg-[#FFFBEB] p-3.5 text-xs text-[#92400E]">
+                            <div className="flex items-start gap-2">
+                              <Clock className="h-4 w-4 shrink-0 mt-0.5 text-[#D97706]" />
+                              <div>
+                                <p className="font-extrabold">Queued for Bank Reconciliation</p>
+                                <p className="mt-0.5 text-[11px] leading-relaxed text-[#78350F]">
+                                  {proof.reviewRemarks || "Proof received. The accounts team reconciles references with school statement credits within 24 hours."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            /* Empty State for Proofs */
+            <div className="rounded-2xl border border-[#E5DFE9] bg-white p-12 text-center shadow-xs">
+              <FileCheck2 className="h-12 w-12 text-[#BBAFC4] mx-auto mb-3" />
+              <h3 className="text-lg font-extrabold text-[#29166F]">No Payment Proofs Found</h3>
+              <p className="mt-1 text-xs text-[#817887] max-w-sm mx-auto">
+                No payment proof submissions match your current filter selection.
+              </p>
+              <button
+                onClick={() => {
+                  setProofStatusFilter("all");
+                  setProofPupilFilter("all");
+                  setProofSearchQuery("");
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 py-2 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset proof filters
+              </button>
+            </div>
+          )}
         </div>
       )}
       {/* Online Payment Placeholder Modal */}
