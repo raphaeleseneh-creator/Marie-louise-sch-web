@@ -14,7 +14,7 @@ import { NewsEvents } from "./components/home/NewsEvents";
 import { ParentPortalSection } from "./components/home/ParentPortalSection";
 import { FinalCTA } from "./components/home/FinalCTA";
 import { AdmissionModal } from "./components/modals/AdmissionModal";
-import { ParentPortalModal } from "./components/modals/ParentPortalModal";
+import { ParentPortalPage } from "./components/portal/ParentPortalPage";
 import { BookTourModal } from "./components/modals/BookTourModal";
 import type { NavTab } from "./types";
 import type { SchoolClass } from "./data/school";
@@ -22,9 +22,29 @@ import type { SchoolClass } from "./data/school";
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("home");
   const [isAdmissionOpen, setIsAdmissionOpen] = useState(false);
-  const [isParentPortalOpen, setIsParentPortalOpen] = useState(false);
+  const [isParentPortalPage, setIsParentPortalPage] = useState(
+    () => window.location.pathname === "/parent-portal"
+  );
   const [isBookTourOpen, setIsBookTourOpen] = useState(false);
   const [selectedClassForAdmission, setSelectedClassForAdmission] = useState<SchoolClass | undefined>();
+
+  useEffect(() => {
+    const handlePopState = () => setIsParentPortalPage(window.location.pathname === "/parent-portal");
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const openParentPortal = () => {
+    window.history.pushState({}, "", "/parent-portal");
+    window.scrollTo({ top: 0 });
+    setIsParentPortalPage(true);
+  };
+
+  const closeParentPortal = () => {
+    window.history.pushState({}, "", "/");
+    window.scrollTo({ top: 0 });
+    setIsParentPortalPage(false);
+  };
 
   // Smooth Navigation Handler
   const handleNavigate = (tab: NavTab) => {
@@ -48,9 +68,13 @@ export default function App() {
       const el = document.getElementById("admissions");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "parent-portal") {
-      setIsParentPortalOpen(true);
+      openParentPortal();
     }
   };
+
+  if (isParentPortalPage) {
+    return <ParentPortalPage onBackToSchool={closeParentPortal} />;
+  }
 
   const handleOpenAdmissions = (preselectedClass?: SchoolClass) => {
     setSelectedClassForAdmission(preselectedClass);
@@ -64,7 +88,7 @@ export default function App() {
         activeTab={activeTab}
         onNavigate={handleNavigate}
         onOpenAdmissions={() => handleOpenAdmissions()}
-        onOpenParentPortal={() => setIsParentPortalOpen(true)}
+        onOpenParentPortal={openParentPortal}
       />
 
       {/* Main Homepage Editorial Narrative */}
@@ -109,7 +133,7 @@ export default function App() {
 
         {/* 11. Dedicated Parent Portal Section */}
         <ParentPortalSection
-          onOpenPortal={() => setIsParentPortalOpen(true)}
+          onOpenPortal={openParentPortal}
         />
 
         {/* 12. Final Emotional Call to Action */}
@@ -123,7 +147,7 @@ export default function App() {
       <Footer
         onNavigate={handleNavigate}
         onOpenAdmissions={() => handleOpenAdmissions()}
-        onOpenParentPortal={() => setIsParentPortalOpen(true)}
+        onOpenParentPortal={openParentPortal}
       />
 
       {/* Interactive Modals */}
@@ -134,11 +158,6 @@ export default function App() {
           setSelectedClassForAdmission(undefined);
         }}
         preselectedClass={selectedClassForAdmission}
-      />
-
-      <ParentPortalModal
-        isOpen={isParentPortalOpen}
-        onClose={() => setIsParentPortalOpen(false)}
       />
 
       <BookTourModal

@@ -1,5 +1,5 @@
 import React from "react";
-import { ShieldCheck, ArrowRight, Lock, CheckCircle, FileText, Calendar, CreditCard, Bell } from "lucide-react";
+import { ShieldCheck, ArrowRight, Lock, FileText, Calendar, CreditCard, Bell } from "lucide-react";
 
 interface ParentPortalSectionProps {
   onOpenPortal: () => void;
@@ -55,7 +55,7 @@ export const ParentPortalSection: React.FC<ParentPortalSectionProps> = ({
 
               <p className="text-sm sm:text-base text-white/80 leading-relaxed mb-8 max-w-lg">
                 We respect your time and value seamless communication. The Marie
-                Louise Parent Portal provides an encrypted, centralised hub for
+                Louise Parent Portal provides a private, centralised hub for
                 tracking your child&apos;s academic milestones, attendance, and administrative
                 records.
               </p>
@@ -71,7 +71,7 @@ export const ParentPortalSection: React.FC<ParentPortalSectionProps> = ({
                 </button>
 
                 <span className="text-xs text-white/70">
-                  Protected &bull; 256-bit SSL Encrypted
+                  Private account &bull; Secure sign-in required
                 </span>
               </div>
             </div>
