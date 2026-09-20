@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useId } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
@@ -17,12 +17,14 @@ import {
   GraduationCap,
   HelpCircle,
   Home,
+  Info,
   LockKeyhole,
   LogOut,
   Menu,
   Plus,
   ShieldCheck,
   UserRound,
+  Users,
   X,
 } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
@@ -31,6 +33,7 @@ import type {
   ParentDashboardData,
   PortalView,
   AbsenceReason,
+  Pupil,
 } from "../../types/portal";
 
 interface ParentPortalPageProps {
@@ -52,22 +55,22 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
   const [isPupilMenuOpen, setIsPupilMenuOpen] = useState(false);
   const [formError, setFormError] = useState("");
   const [dashboardData, setDashboardData] = useState<ParentDashboardData | null>(null);
-  const [selectedPupilId, setSelectedPupilId] = useState<string | undefined>(undefined);
+  const [activePupilId, setActivePupilId] = useState<string>("recPup001Kamsi");
   const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
 
+  const selectorButtonRef = useRef<HTMLButtonElement>(null);
+  const selectorDropdownRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+
   // Load portal data via the service layer
-  const loadPortalData = async (pupilId?: string) => {
+  const loadPortalData = async (targetId: string = activePupilId) => {
     try {
-      const data = await portalService.getDashboardData(dashboardData?.parent.id, pupilId);
+      const data = await portalService.getDashboardData(dashboardData?.parent.id, targetId);
       setDashboardData(data);
-      if (pupilId) {
-        setSelectedPupilId(pupilId);
-      } else if (!selectedPupilId && data.selectedPupil) {
-        setSelectedPupilId(data.selectedPupil.id);
-      }
+      setActivePupilId(targetId);
     } catch (err) {
       console.error("Failed to load portal data:", err);
     }
@@ -75,9 +78,37 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
 
   useEffect(() => {
     if (isSignedIn) {
-      loadPortalData(selectedPupilId);
+      loadPortalData(activePupilId);
     }
-  }, [isSignedIn, selectedPupilId]);
+  }, [isSignedIn, activePupilId]);
+
+  // Handle clicking outside the pupil dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        selectorDropdownRef.current &&
+        !selectorDropdownRef.current.contains(event.target as Node) &&
+        selectorButtonRef.current &&
+        !selectorButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsPupilMenuOpen(false);
+      }
+    };
+    if (isPupilMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isPupilMenuOpen]);
+
+  // Handle Escape and Keyboard navigation in dropdown
+  const handleDropdownKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setIsPupilMenuOpen(false);
+      selectorButtonRef.current?.focus();
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -97,18 +128,18 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     }
 
     setFormError("");
-    await loadPortalData();
+    await loadPortalData(activePupilId);
     setIsSignedIn(true);
   };
 
   const handleDemoSignIn = async () => {
     setFormError("");
-    await loadPortalData();
+    await loadPortalData("recPup001Kamsi");
     setIsSignedIn(true);
   };
 
   const handleSwitchPupil = (pupilId: string) => {
-    setSelectedPupilId(pupilId);
+    setActivePupilId(pupilId);
     loadPortalData(pupilId);
     setIsPupilMenuOpen(false);
   };
@@ -117,13 +148,14 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     e.preventDefault();
     if (!dashboardData) return;
     const form = new FormData(e.currentTarget);
+    const targetPupilId = (form.get("pupilId") as string) || dashboardData.selectedPupil?.id || dashboardData.pupils[0].id;
     const startDate = form.get("startDate") as string;
     const endDate = form.get("endDate") as string;
     const reason = form.get("reason") as AbsenceReason;
     const notes = form.get("notes") as string;
 
     await portalService.submitAbsenceReport({
-      pupilId: dashboardData.selectedPupil.id,
+      pupilId: targetPupilId,
       parentId: dashboardData.parent.id,
       startDate,
       endDate,
@@ -131,7 +163,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
       notes,
     });
 
-    await loadPortalData(dashboardData.selectedPupil.id);
+    await loadPortalData(activePupilId);
     setIsAbsenceModalOpen(false);
     setActionSuccess("Absence notice submitted to the school administration.");
     setTimeout(() => setActionSuccess(null), 5000);
@@ -142,6 +174,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     if (!dashboardData) return;
     const form = new FormData(e.currentTarget);
     const invoiceId = form.get("invoiceId") as string;
+    const selectedInv = dashboardData.invoices.find((i) => i.id === invoiceId) || dashboardData.invoices[0];
     const amount = Number(form.get("amount")) || 0;
     const bankName = form.get("bankName") as string;
     const paymentDate = form.get("paymentDate") as string;
@@ -149,8 +182,8 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
     const notes = form.get("notes") as string;
 
     await portalService.submitPaymentProof({
-      invoiceId,
-      pupilId: dashboardData.selectedPupil.id,
+      invoiceId: selectedInv?.id || invoiceId,
+      pupilId: selectedInv?.pupilId || dashboardData.selectedPupil?.id || dashboardData.pupils[0].id,
       parentId: dashboardData.parent.id,
       amount,
       bankName,
@@ -159,9 +192,9 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
       notes,
     });
 
-    await loadPortalData(dashboardData.selectedPupil.id);
+    await loadPortalData(activePupilId);
     setIsProofModalOpen(false);
-    setActionSuccess("Payment proof uploaded for verification.");
+    setActionSuccess("Payment proof uploaded for bursary verification.");
     setTimeout(() => setActionSuccess(null), 5000);
   };
 
@@ -191,26 +224,26 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
           <div className="relative z-10 max-w-2xl px-10 pb-16 xl:px-14 xl:pb-20">
             <div className="mb-6 flex items-center gap-3 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#E9DB3D]">
               <span className="h-px w-10 bg-[#E9DB3D]" />
-              Parent partnership
+              Parent partnership & Multi-Child Hub
             </div>
             <h1 className="max-w-xl text-5xl font-extrabold leading-[1.02] text-white xl:text-6xl">
               Every milestone, closer to home.
             </h1>
             <p className="mt-6 max-w-lg text-base leading-7 text-white/76">
-              Follow your child&apos;s learning, attendance, school notices and fee records from one calm, private space.
+              Follow all your children&apos;s learning journeys, attendance, school notices, and fee statements from one calm, private family workspace.
             </p>
 
             <div className="mt-12 grid max-w-xl grid-cols-3 border-y border-white/18 py-6">
               <div>
-                <p className="text-2xl font-extrabold text-white">98.2%</p>
-                <p className="mt-1 text-xs text-white/60">Demo attendance</p>
+                <p className="text-2xl font-extrabold text-white">98.4%</p>
+                <p className="mt-1 text-xs text-white/60">Family attendance</p>
               </div>
               <div className="border-x border-white/18 px-7">
-                <p className="text-2xl font-extrabold text-white">4</p>
-                <p className="mt-1 text-xs text-white/60">Core services</p>
+                <p className="text-2xl font-extrabold text-white">3</p>
+                <p className="mt-1 text-xs text-white/60">Linked pupils</p>
               </div>
               <div className="pl-7">
-                <p className="text-2xl font-extrabold text-white">1 place</p>
+                <p className="text-2xl font-extrabold text-white">1 login</p>
                 <p className="mt-1 text-xs text-white/60">For your family</p>
               </div>
             </div>
@@ -315,10 +348,10 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               className="flex h-13 w-full items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-5 text-sm font-extrabold text-[#29166F] transition hover:border-[#BBAFC4] hover:bg-[#F1ECF6] active:scale-[0.99] cursor-pointer"
             >
               <BookOpen className="h-4 w-4 text-[#581C87]" />
-              View demo dashboard
+              View demo family dashboard
             </button>
             <p className="mt-3 text-center text-[11px] leading-5 text-[#817887]">
-              Demonstration data only. Live family records require a secure school account.
+              Demonstration data only. One parent account accessing multiple linked pupils.
             </p>
           </div>
 
@@ -332,12 +365,28 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
   }
 
   const selectedPupil = dashboardData?.selectedPupil;
+  const isFamilyView = dashboardData?.isFamilyView ?? false;
   const parent = dashboardData?.parent;
   const pupils = dashboardData?.pupils || [];
   const CurrentIcon = portalNavigation.find((item) => item.id === activeView)?.icon ?? Home;
 
   return (
     <main className="min-h-[100dvh] bg-[#F5F3F7] text-[#27232D]">
+      {/* Demonstration Notice Strip */}
+      <div className="bg-[#29166F] text-white px-4 py-2 text-xs border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded bg-[#E9DB3D] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#29166F]">
+            Demonstration data
+          </span>
+          <span className="text-white/80 hidden sm:inline">
+            Fictional parent account linked to {pupils.length} enrolled pupils. No live Airtable database connected yet.
+          </span>
+        </div>
+        <span className="text-[11px] text-white/70 font-medium">
+          Logged in as: <strong className="text-white">{parent?.fullName}</strong> ({parent?.admissionIdentity})
+        </span>
+      </div>
+
       {/* Action Notification Toast */}
       <AnimatePresence>
         {actionSuccess && (
@@ -345,7 +394,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-20 right-4 sm:right-8 z-50 flex items-center gap-3 rounded-xl bg-[#087A50] px-5 py-3 text-sm font-bold text-white shadow-xl"
+            className="fixed top-24 right-4 sm:right-8 z-50 flex items-center gap-3 rounded-xl bg-[#087A50] px-5 py-3 text-sm font-bold text-white shadow-xl"
           >
             <CheckCircle2 className="h-5 w-5" />
             <span>{actionSuccess}</span>
@@ -359,7 +408,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
             <button
               onClick={() => setIsMenuOpen(true)}
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#29166F] lg:hidden cursor-pointer"
-              aria-label="Open portal menu"
+              aria-label="Open portal navigation menu"
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -374,7 +423,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
             <button
               onClick={() => setActiveView("notices")}
               className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#4C4652] hover:bg-[#F7F4FA] cursor-pointer"
-              aria-label="Notifications"
+              aria-label="Notifications bulletin"
             >
               <Bell className="h-4 w-4" />
               {(dashboardData?.notices.length ?? 0) > 0 && (
@@ -382,55 +431,144 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               )}
             </button>
 
-            {/* Pupil Profile Switcher */}
+            {/* Polished Accessible Child Selector in Header */}
             <div className="relative">
               <button
+                ref={selectorButtonRef}
                 onClick={() => setIsPupilMenuOpen((open) => !open)}
-                className="flex items-center gap-2 rounded-lg border border-[#E5DFE9] bg-white px-2 py-1.5 text-left transition hover:bg-[#F8F6FA] cursor-pointer"
-                aria-label="Switch child profile"
+                aria-haspopup="listbox"
+                aria-expanded={isPupilMenuOpen}
+                aria-controls={listboxId}
+                aria-label={
+                  isFamilyView
+                    ? "Active view: Family overview covering all children. Click to switch child."
+                    : `Active pupil: ${selectedPupil?.fullName}, ${selectedPupil?.class}. Click to switch child.`
+                }
+                className="flex items-center gap-2.5 rounded-xl border border-[#E5DFE9] bg-white px-2.5 py-1.5 text-left transition hover:border-[#BBAFC4] hover:bg-[#FBF9FD] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#581C87]/20"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#581C87] text-xs font-extrabold text-white">
-                  {selectedPupil?.avatarInitials || "KC"}
-                </span>
-                <span className="hidden pr-1 sm:block">
-                  <span className="block text-xs font-extrabold text-[#29166F]">
-                    {selectedPupil?.firstName || "Kamsiyochukwu"}
+                {isFamilyView ? (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#29166F] text-xs font-extrabold text-[#E9DB3D]">
+                    <Users className="h-4 w-4" />
                   </span>
-                  <span className="block text-[10px] text-[#817887]">
-                    {selectedPupil?.class || "Primary 3"}
+                ) : (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#581C87] text-xs font-extrabold text-white">
+                    {selectedPupil?.avatarInitials}
                   </span>
-                </span>
+                )}
+                <div className="hidden sm:block">
+                  <span className="block text-xs font-extrabold text-[#29166F] leading-tight">
+                    {isFamilyView ? "Family Overview" : selectedPupil?.firstName}
+                  </span>
+                  <span className="block text-[10px] text-[#817887] leading-tight">
+                    {isFamilyView ? `${pupils.length} Children` : selectedPupil?.class}
+                  </span>
+                </div>
                 <ChevronDown
-                  className={`hidden h-3.5 w-3.5 text-[#817887] transition-transform sm:block ${
-                    isPupilMenuOpen ? "rotate-180" : ""
+                  className={`h-3.5 w-3.5 text-[#817887] transition-transform ${
+                    isPupilMenuOpen ? "rotate-180 text-[#581C87]" : ""
                   }`}
                 />
               </button>
 
+              {/* Accessible Dropdown Listbox */}
               {isPupilMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-[#E5DFE9] bg-white p-2 shadow-xl z-50">
-                  <p className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-[#9A929F]">
-                    Switch enrolled pupil
-                  </p>
-                  {pupils.map((pupil) => (
-                    <button
-                      key={pupil.id}
-                      onClick={() => handleSwitchPupil(pupil.id)}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs transition cursor-pointer ${
-                        pupil.id === selectedPupil?.id
-                          ? "bg-[#F0EBF5] font-bold text-[#581C87]"
-                          : "text-[#4C4652] hover:bg-[#F7F4FA]"
+                <div
+                  ref={selectorDropdownRef}
+                  id={listboxId}
+                  role="listbox"
+                  aria-label="Linked children selection"
+                  onKeyDown={handleDropdownKeyDown}
+                  className="absolute right-0 top-full mt-2 w-72 sm:w-80 rounded-2xl border border-[#E5DFE9] bg-white p-2.5 shadow-[0_20px_45px_rgba(41,22,111,0.18)] z-50 focus:outline-none"
+                >
+                  <div className="px-3 py-1.5 border-b border-[#EEE9F1] mb-1 flex items-center justify-between">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#9A929F]">
+                      Family Selection
+                    </p>
+                    <span className="text-[10px] font-bold text-[#581C87] bg-[#F1ECF6] px-2 py-0.5 rounded-full">
+                      {pupils.length} linked
+                    </span>
+                  </div>
+
+                  {/* Family Overview Option */}
+                  <button
+                    role="option"
+                    aria-selected={isFamilyView}
+                    onClick={() => handleSwitchPupil("family")}
+                    className={`w-full flex items-center gap-3 rounded-xl p-2.5 text-left text-xs transition cursor-pointer mb-1 ${
+                      isFamilyView
+                        ? "bg-[#29166F] text-white shadow-sm"
+                        : "text-[#342D3A] hover:bg-[#F8F6FA]"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-10 w-10 items-center justify-center rounded-lg font-extrabold shrink-0 ${
+                        isFamilyView ? "bg-white/20 text-[#E9DB3D]" : "bg-[#29166F]/10 text-[#29166F]"
                       }`}
                     >
-                      <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#581C87] text-[11px] font-extrabold text-white">
-                        {pupil.avatarInitials}
-                      </span>
-                      <div>
-                        <span className="block font-bold text-[#29166F]">{pupil.fullName}</span>
-                        <span className="block text-[10px] text-[#817887]">{pupil.class} · {pupil.admissionNumber}</span>
+                      <Users className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`font-extrabold truncate ${isFamilyView ? "text-white" : "text-[#29166F]"}`}>
+                          Family Overview
+                        </span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                            isFamilyView ? "bg-[#E9DB3D] text-[#29166F]" : "bg-[#EEE9F1] text-[#625B69]"
+                          }`}
+                        >
+                          All Pupils
+                        </span>
                       </div>
-                    </button>
-                  ))}
+                      <p className={`text-[11px] truncate mt-0.5 ${isFamilyView ? "text-white/80" : "text-[#817887]"}`}>
+                        Consolidated fees, attendance & calendar
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-[#9A929F]">
+                    Individual Pupil Records
+                  </div>
+
+                  {/* Individual Pupil Options */}
+                  <div className="space-y-1">
+                    {pupils.map((pupil) => {
+                      const isSelected = !isFamilyView && pupil.id === activePupilId;
+                      return (
+                        <button
+                          key={pupil.id}
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={() => handleSwitchPupil(pupil.id)}
+                          className={`w-full flex items-center gap-3 rounded-xl p-2.5 text-left text-xs transition cursor-pointer ${
+                            isSelected
+                              ? "bg-[#F0EBF5] text-[#581C87] border border-[#581C87]/20 shadow-xs"
+                              : "text-[#342D3A] hover:bg-[#F8F6FA]"
+                          }`}
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#581C87] text-white font-extrabold text-sm shrink-0">
+                            {pupil.avatarInitials}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-extrabold text-[#29166F] truncate">
+                                {pupil.fullName}
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-[#E5F7ED] text-[#087A50] shrink-0">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                                {pupil.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#817887]">
+                              <span className="font-semibold text-[#581C87]">{pupil.class}</span>
+                              <span>&bull;</span>
+                              <span>{pupil.admissionNumber}</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -441,6 +579,33 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
       <div className="mx-auto grid max-w-[1500px] lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="sticky top-[72px] hidden h-[calc(100dvh-72px)] border-r border-[#E5DFE9] bg-white px-4 py-6 lg:flex lg:flex-col">
           <PortalMenu activeView={activeView} onSelect={setActiveView} />
+
+          {/* Quick Switcher in Sidebar */}
+          <div className="my-6 rounded-xl border border-[#EEE9F1] bg-[#FAF8FC] p-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#9A929F] mb-2">
+              Viewing profile
+            </p>
+            <div className="flex items-center gap-2.5">
+              {isFamilyView ? (
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#29166F] text-xs font-bold text-[#E9DB3D]">
+                  <Users className="h-4 w-4" />
+                </div>
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#581C87] text-xs font-bold text-white">
+                  {selectedPupil?.avatarInitials}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[#29166F] truncate">
+                  {isFamilyView ? "Family Overview" : selectedPupil?.fullName}
+                </p>
+                <p className="text-[10px] text-[#817887] truncate">
+                  {isFamilyView ? "All Enrolled Children" : `${selectedPupil?.class} · ${selectedPupil?.admissionNumber}`}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-auto space-y-1 border-t border-[#EEE9F1] pt-4">
             <button
               onClick={onBackToSchool}
@@ -458,6 +623,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
         </aside>
 
         <section className="min-w-0 px-4 py-7 sm:px-6 lg:px-9 lg:py-9 xl:px-12">
+          {/* Section Header */}
           <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
               <p className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.15em] text-[#581C87]">
@@ -465,41 +631,67 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               </p>
               <h1 className="mt-2 text-3xl font-extrabold text-[#29166F] sm:text-4xl">
                 {activeView === "overview"
-                  ? `Good afternoon, ${parent?.firstName || "Chidinma"}.`
-                  : portalNavigation.find((item) => item.id === activeView)?.label}
+                  ? isFamilyView
+                    ? `Welcome, ${parent?.firstName || "Chidinma"} · Family Hub`
+                    : `Good afternoon, ${parent?.firstName || "Chidinma"}.`
+                  : isFamilyView
+                  ? `${portalNavigation.find((item) => item.id === activeView)?.label} · All Children`
+                  : `${portalNavigation.find((item) => item.id === activeView)?.label} · ${selectedPupil?.firstName}`}
               </h1>
               <p className="mt-2 text-sm text-[#625B69]">
-                {selectedPupil?.academicTerm || "First term · 2026/2027 academic session"}
+                {isFamilyView
+                  ? `Comprehensive view across ${pupils.length} enrolled siblings · 2026/2027 academic session`
+                  : `${selectedPupil?.academicTerm || "First term · 2026/2027 academic session"} · ${selectedPupil?.class}`}
               </p>
             </div>
-            <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#E5F7ED] px-3 py-1.5 text-xs font-extrabold text-[#087A50]">
-              <CheckCircle2 className="h-3.5 w-3.5" /> All records up to date
-            </span>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#E5F7ED] px-3 py-1.5 text-xs font-extrabold text-[#087A50]">
+                <CheckCircle2 className="h-3.5 w-3.5" /> All records up to date
+              </span>
+            </div>
           </div>
 
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeView + (selectedPupil?.id || "")}
+              key={activeView + activePupilId}
               initial={reduceMotion ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={reduceMotion ? undefined : { opacity: 0, y: -5 }}
               transition={{ duration: 0.22 }}
             >
               {activeView === "overview" && dashboardData ? (
-                <Overview data={dashboardData} onNavigate={setActiveView} />
+                isFamilyView ? (
+                  <FamilyOverview
+                    data={dashboardData}
+                    onSelectChild={handleSwitchPupil}
+                    onNavigate={setActiveView}
+                  />
+                ) : (
+                  <PupilOverview
+                    data={dashboardData}
+                    onNavigate={setActiveView}
+                    onSwitchToFamily={() => handleSwitchPupil("family")}
+                  />
+                )
               ) : null}
+
               {activeView === "reports" && dashboardData ? (
                 <Reports
                   data={dashboardData}
                   onOpenAbsenceModal={() => setIsAbsenceModalOpen(true)}
+                  onSelectChild={handleSwitchPupil}
                 />
               ) : null}
+
               {activeView === "fees" && dashboardData ? (
                 <Fees
                   data={dashboardData}
                   onOpenProofModal={() => setIsProofModalOpen(true)}
+                  onSelectChild={handleSwitchPupil}
                 />
               ) : null}
+
               {activeView === "notices" && dashboardData ? (
                 <Notices data={dashboardData} />
               ) : null}
@@ -508,33 +700,86 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
         </section>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Ergonomic Mobile Drawer Menu with Mobile Child Selector */}
       <AnimatePresence>
         {isMenuOpen ? (
           <motion.div
-            className="fixed inset-0 z-50 bg-[#160B35]/45 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-50 bg-[#160B35]/50 backdrop-blur-sm lg:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsMenuOpen(false)}
           >
             <motion.aside
-              className="absolute inset-y-0 left-0 flex w-[min(86vw,340px)] flex-col bg-white p-5"
+              className="absolute inset-y-0 left-0 flex w-[min(88vw,360px)] flex-col bg-white p-5 overflow-y-auto"
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-8 flex items-center justify-between">
+              <div className="mb-6 flex items-center justify-between border-b border-[#EEE9F1] pb-4">
                 <SchoolLogo onClick={onBackToSchool} />
                 <button
                   onClick={() => setIsMenuOpen(false)}
                   className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#29166F] cursor-pointer"
-                  aria-label="Close portal menu"
+                  aria-label="Close navigation menu"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
+
+              {/* Dedicated Mobile Child Selector */}
+              <div className="mb-6 rounded-2xl bg-[#F8F6FA] border border-[#E5DFE9] p-3.5">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#581C87] mb-2.5">
+                  Select Child or Family View
+                </p>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => {
+                      handleSwitchPupil("family");
+                      setIsMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl text-left text-xs font-bold transition cursor-pointer ${
+                      isFamilyView
+                        ? "bg-[#29166F] text-white shadow-sm"
+                        : "bg-white text-[#29166F] border border-[#E8E2ED]"
+                    }`}
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Family Overview (All {pupils.length} Children)</span>
+                  </button>
+
+                  {pupils.map((pupil) => (
+                    <button
+                      key={pupil.id}
+                      onClick={() => {
+                        handleSwitchPupil(pupil.id);
+                        setIsMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs transition cursor-pointer ${
+                        !isFamilyView && pupil.id === activePupilId
+                          ? "bg-[#581C87] text-white font-bold"
+                          : "bg-white text-[#342D3A] border border-[#E8E2ED]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-extrabold ${
+                            !isFamilyView && pupil.id === activePupilId
+                              ? "bg-white/20 text-white"
+                              : "bg-[#581C87]/15 text-[#581C87]"
+                          }`}
+                        >
+                          {pupil.avatarInitials}
+                        </span>
+                        <span>{pupil.fullName}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80">{pupil.class}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <PortalMenu
                 activeView={activeView}
                 onSelect={(view) => {
@@ -542,6 +787,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                   setIsMenuOpen(false);
                 }}
               />
+
               <div className="mt-auto space-y-2 border-t border-[#EEE9F1] pt-4">
                 <button
                   onClick={onBackToSchool}
@@ -582,12 +828,29 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                 <button
                   onClick={() => setIsAbsenceModalOpen(false)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer"
+                  aria-label="Close modal"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
               <form onSubmit={handleAbsenceSubmit} className="mt-5 space-y-4">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-[#342D3A]">Select Child</label>
+                  <select
+                    name="pupilId"
+                    defaultValue={dashboardData?.selectedPupil?.id || dashboardData?.pupils[0].id}
+                    required
+                    className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
+                  >
+                    {dashboardData?.pupils.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.fullName} ({p.class} · {p.admissionNumber})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-xs font-bold text-[#342D3A]">Start Date</label>
@@ -618,21 +881,21 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                     required
                     className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
                   >
-                    <option value="Illness">Illness / Unwell</option>
-                    <option value="Medical Appointment">Medical / Dental Appointment</option>
-                    <option value="Family Event">Family Event</option>
+                    <option value="Illness">Illness / Medical Issue</option>
+                    <option value="Medical Appointment">Scheduled Doctor / Dental Visit</option>
+                    <option value="Family Event">Family Engagement</option>
                     <option value="Travel">Travel / Relocation</option>
-                    <option value="Other">Other</option>
+                    <option value="Other">Other Reason</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-bold text-[#342D3A]">Notes for School Admin</label>
+                  <label className="mb-1 block text-xs font-bold text-[#342D3A]">Notes for Class Teacher & Office</label>
                   <textarea
                     name="notes"
                     required
                     rows={3}
-                    placeholder="Provide brief details for the class teacher and attendance officer..."
+                    placeholder="Provide relevant information for the school office register..."
                     className="w-full rounded-lg border border-[#DCD5E1] p-3 text-sm outline-none focus:border-[#581C87]"
                   />
                 </div>
@@ -676,6 +939,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                 <button
                   onClick={() => setIsProofModalOpen(false)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer"
+                  aria-label="Close modal"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -689,11 +953,14 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                     required
                     className="h-11 w-full rounded-lg border border-[#DCD5E1] px-3 text-sm outline-none focus:border-[#581C87]"
                   >
-                    {dashboardData?.invoices.map((inv) => (
-                      <option key={inv.id} value={inv.id}>
-                        {inv.invoiceNumber} — {inv.title} (₦{inv.amountDue.toLocaleString()})
-                      </option>
-                    ))}
+                    {dashboardData?.invoices.map((inv) => {
+                      const child = dashboardData.pupils.find((p) => p.id === inv.pupilId);
+                      return (
+                        <option key={inv.id} value={inv.id}>
+                          {child ? `${child.firstName}: ` : ""}{inv.invoiceNumber} — {inv.title} (₦{inv.amountDue.toLocaleString()})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -814,20 +1081,242 @@ const PortalMenu: React.FC<{ activeView: PortalView; onSelect: (view: PortalView
   </nav>
 );
 
-const Overview: React.FC<{ data: ParentDashboardData; onNavigate: (view: PortalView) => void }> = ({
-  data,
-  onNavigate,
-}) => {
-  const pupil = data.selectedPupil;
+/**
+ * 1. Family Overview Component: Shown when "Family overview" is selected.
+ */
+const FamilyOverview: React.FC<{
+  data: ParentDashboardData;
+  onSelectChild: (pupilId: string) => void;
+  onNavigate: (view: PortalView) => void;
+}> = ({ data, onSelectChild, onNavigate }) => {
+  const totalBalance = data.invoices.reduce((acc, inv) => acc + inv.balance, 0);
+  const avgAttendance = (
+    data.pupils.reduce((acc, p) => acc + p.attendanceRate, 0) / data.pupils.length
+  ).toFixed(1);
+
+  return (
+    <div className="space-y-7">
+      {/* Family Banner Card */}
+      <section className="overflow-hidden rounded-2xl bg-[#29166F] text-white p-6 sm:p-8 relative">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="rounded bg-[#E9DB3D] px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#29166F]">
+                Family Hub
+              </span>
+              <span className="text-xs text-white/70">
+                {data.parent.fullName}
+              </span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
+              Chukwuma Family Overview
+            </h2>
+            <p className="mt-2 text-sm text-white/80 max-w-xl leading-relaxed">
+              Monitoring {data.pupils.length} enrolled children across Nursery and Primary school. Select any child card below for their dedicated academic file.
+            </p>
+          </div>
+
+          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 sm:border-l border-white/15 pt-4 sm:pt-0 sm:pl-8">
+            <div className="text-left sm:text-right">
+              <p className="text-3xl font-extrabold text-[#E9DB3D]">{avgAttendance}%</p>
+              <p className="text-xs text-white/70">Family Attendance</p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] px-3 py-1 text-xs font-bold text-[#087A50] mt-2">
+              <CheckCircle2 className="h-3.5 w-3.5" /> All In Good Standing
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* Aggregate Family Metrics */}
+      <section className="grid divide-y divide-[#E5DFE9] overflow-hidden rounded-xl border border-[#E5DFE9] bg-white sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <Metric
+          label="Enrolled children"
+          value={`${data.pupils.length} Pupils`}
+          note="Nursery & Primary"
+          icon={Users}
+        />
+        <Metric
+          label="Total family balance"
+          value={totalBalance === 0 ? "₦0.00 Settled" : `₦${totalBalance.toLocaleString()}`}
+          note={totalBalance === 0 ? "All term invoices clear" : "Invoice payment pending"}
+          icon={CreditCard}
+        />
+        <Metric
+          label="Active bulletins"
+          value={String(data.notices.length).padStart(2, "0")}
+          note="Circulars & announcements"
+          icon={Bell}
+        />
+      </section>
+
+      {/* Children Cards Grid */}
+      <div>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">
+              Enrolled children profiles
+            </p>
+            <h3 className="text-lg font-extrabold text-[#29166F]">
+              Select a pupil to open their individual workspace
+            </h3>
+          </div>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {data.familyCards.map(({ pupil, attendanceRate, currentAverage, unpaidBalance }) => (
+            <div
+              key={pupil.id}
+              className="group rounded-2xl border border-[#E5DFE9] bg-white p-6 shadow-sm hover:border-[#581C87]/40 hover:shadow-md transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#581C87] text-white font-extrabold text-base shadow-sm">
+                      {pupil.avatarInitials}
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-base text-[#29166F] group-hover:text-[#581C87] transition-colors">
+                        {pupil.fullName}
+                      </h4>
+                      <p className="text-xs font-bold text-[#581C87]">
+                        {pupil.class} · {pupil.admissionNumber}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#E5F7ED] px-2 py-0.5 text-[10px] font-extrabold text-[#087A50]">
+                    {pupil.status}
+                  </span>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-2 border-y border-[#EEE9F1] py-3 text-xs">
+                  <div>
+                    <span className="block text-[10px] font-bold text-[#817887]">Attendance</span>
+                    <span className="font-extrabold text-[#29166F] text-base">{attendanceRate}%</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-[#817887]">Average Score</span>
+                    <span className="font-extrabold text-[#29166F] text-base">{currentAverage}%</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 text-xs text-[#625B69] space-y-1">
+                  <p><strong className="text-[#342D3A]">House:</strong> {pupil.house}</p>
+                  <p><strong className="text-[#342D3A]">Teacher:</strong> {pupil.classTeacher}</p>
+                  <p className="text-[11px] text-[#817887] italic line-clamp-2 mt-2">
+                    &ldquo;{pupil.teacherRemarks}&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-4 border-t border-[#EEE9F1] flex items-center justify-between">
+                <span className="text-xs font-bold text-[#087A50]">
+                  {unpaidBalance === 0 ? "Fees fully settled" : `₦${unpaidBalance.toLocaleString()} Due`}
+                </span>
+                <button
+                  onClick={() => onSelectChild(pupil.id)}
+                  className="inline-flex items-center gap-1 text-xs font-extrabold text-[#581C87] hover:text-[#29166F] group-hover:underline cursor-pointer"
+                >
+                  <span>Open {pupil.firstName}&apos;s file</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Family Calendar & Combined Notices */}
+      <div className="grid gap-7 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">School Calendar</p>
+              <h3 className="mt-1 text-lg font-extrabold text-[#29166F]">Upcoming Key Dates</h3>
+            </div>
+            <CalendarDays className="h-5 w-5 text-[#817887]" />
+          </div>
+          <div className="divide-y divide-[#EEE9F1]">
+            {data.calendarEvents.map((event) => (
+              <div key={event.id} className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0">
+                <div className="w-11 text-center">
+                  <span className="block text-lg font-extrabold text-[#29166F]">{event.day}</span>
+                  <span className="block text-[9px] font-extrabold tracking-wider text-[#817887]">{event.month}</span>
+                </div>
+                <span className="h-8 w-px bg-[#E5DFE9]" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-[#3E3744] truncate">{event.title}</p>
+                  <p className="text-xs text-[#817887]">{event.category} · {event.targetClass || "All School"}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">Family Directives</p>
+              <h3 className="mt-1 text-lg font-extrabold text-[#29166F]">School Bulletins</h3>
+            </div>
+            <button
+              onClick={() => onNavigate("notices")}
+              className="text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+            >
+              View all
+            </button>
+          </div>
+          <div className="space-y-3">
+            {data.notices.slice(0, 3).map((notice) => (
+              <div key={notice.id} className="rounded-lg bg-[#FAF8FC] border border-[#EEE9F1] p-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-extrabold text-[#581C87] text-[10px] uppercase">
+                    {notice.category}
+                  </span>
+                  <span className="text-[11px] text-[#817887]">{notice.date}</span>
+                </div>
+                <h4 className="font-bold text-[#29166F] mt-1 text-sm">{notice.title}</h4>
+                <p className="text-[#625B69] mt-1 line-clamp-2 leading-relaxed">{notice.copy}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 2. Individual Pupil Overview Component
+ */
+const PupilOverview: React.FC<{
+  data: ParentDashboardData;
+  onNavigate: (view: PortalView) => void;
+  onSwitchToFamily: () => void;
+}> = ({ data, onNavigate, onSwitchToFamily }) => {
+  const pupil = data.selectedPupil || data.pupils[0];
   const totalBalance = data.invoices.reduce((acc, inv) => acc + inv.balance, 0);
 
   return (
     <div className="space-y-7">
+      {/* Student Profile Card */}
       <section className="grid overflow-hidden rounded-xl bg-[#29166F] text-white lg:grid-cols-[1.35fr_0.65fr]">
         <div className="p-6 sm:p-8">
-          <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">Student profile</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">
+              Student profile
+            </p>
+            <button
+              onClick={onSwitchToFamily}
+              className="inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-white/10 px-2.5 py-1 rounded-lg transition cursor-pointer"
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>Switch to family view</span>
+            </button>
+          </div>
+
           <div className="mt-5 flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white/12 text-xl font-extrabold">
+            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white/12 text-xl font-extrabold text-[#E9DB3D] border border-white/20">
               {pupil.avatarInitials}
             </div>
             <div>
@@ -852,6 +1341,7 @@ const Overview: React.FC<{ data: ParentDashboardData; onNavigate: (view: PortalV
             </span>
           </div>
         </div>
+
         <div className="flex items-center justify-center border-t border-white/12 bg-[#351A7D] p-7 lg:border-l lg:border-t-0">
           <div className="text-center">
             <div className="relative mx-auto flex h-28 w-28 items-center justify-center rounded-full border-[9px] border-white/12">
@@ -863,23 +1353,24 @@ const Overview: React.FC<{ data: ParentDashboardData; onNavigate: (view: PortalV
         </div>
       </section>
 
+      {/* Key Metrics */}
       <section className="grid divide-y divide-[#E5DFE9] overflow-hidden rounded-xl border border-[#E5DFE9] bg-white sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <Metric
           label="Current average"
           value={`${pupil.currentAverage}%`}
-          note="Excellent progress"
+          note="Continuous assessment progress"
           icon={GraduationCap}
         />
         <Metric
           label="Fees status"
           value={totalBalance === 0 ? "Settled" : `₦${totalBalance.toLocaleString()}`}
-          note={totalBalance === 0 ? "No outstanding balance" : "Invoice due"}
+          note={totalBalance === 0 ? "No outstanding balance" : "Invoice payment due"}
           icon={CreditCard}
         />
         <Metric
-          label="New notices"
+          label="School circulars"
           value={String(data.notices.length).padStart(2, "0")}
-          note="School communications"
+          note="Active bulletins"
           icon={Bell}
         />
       </section>
@@ -959,125 +1450,207 @@ const Progress: React.FC<{ label: string; score: number }> = ({ label, score }) 
   </div>
 );
 
-const Reports: React.FC<{ data: ParentDashboardData; onOpenAbsenceModal: () => void }> = ({
-  data,
-  onOpenAbsenceModal,
-}) => {
-  const pupil = data.selectedPupil;
+/**
+ * 3. Reports & Attendance View
+ */
+const Reports: React.FC<{
+  data: ParentDashboardData;
+  onOpenAbsenceModal: () => void;
+  onSelectChild: (pupilId: string) => void;
+}> = ({ data, onOpenAbsenceModal, onSelectChild }) => {
+  const isFamily = data.isFamilyView;
+  const pupil = data.selectedPupil || data.pupils[0];
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-[#E5DFE9] bg-white">
-        <div className="flex flex-col justify-between gap-4 border-b border-[#EEE9F1] p-5 sm:flex-row sm:items-center sm:p-6">
-          <div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">First term snapshot</p>
-            <h2 className="mt-1 text-xl font-extrabold text-[#29166F]">Continuous assessment</h2>
-          </div>
-          <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#581C87] px-4 text-xs font-extrabold text-white cursor-pointer hover:bg-[#29166F] transition">
-            <Download className="h-4 w-4" /> Download report
-          </button>
-        </div>
-        <div className="divide-y divide-[#EEE9F1] px-5 sm:px-6">
-          {data.academicProgress.map((item) => (
-            <div key={item.subject} className="grid gap-2 py-5 sm:grid-cols-[1fr_100px_120px] sm:items-center">
-              <p className="text-sm font-bold text-[#3E3744]">{item.subject}</p>
-              <p className="text-2xl font-extrabold text-[#29166F]">{item.score}%</p>
-              <p className="text-xs font-bold text-[#087A50]">{item.grade}</p>
+      {isFamily ? (
+        <div className="space-y-6">
+          <div className="rounded-xl bg-[#FAF8FC] border border-[#EEE9F1] p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase text-[#581C87]">Family Reports</p>
+              <h2 className="text-lg font-extrabold text-[#29166F]">
+                Continuous Assessments for All Children
+              </h2>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
-        <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">Teacher&apos;s note</p>
-        <blockquote className="mt-4 max-w-3xl text-lg font-bold leading-8 text-[#342D3A]">
-          “{pupil.teacherRemarks}”
-        </blockquote>
-        <p className="mt-4 text-xs text-[#817887]">
-          {pupil.classTeacher} · {pupil.teacherRole || `${pupil.class} Lead Teacher`}
-        </p>
-      </section>
-
-      {/* Attendance & Absence Management */}
-      <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">Attendance Register</p>
-            <h3 className="mt-1 text-lg font-extrabold text-[#29166F]">Recent Morning Attendance</h3>
+            <button
+              onClick={onOpenAbsenceModal}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#581C87] px-4 text-xs font-extrabold text-white cursor-pointer hover:bg-[#29166F] transition"
+            >
+              <Plus className="h-4 w-4" /> Report Absence
+            </button>
           </div>
-          <button
-            onClick={onOpenAbsenceModal}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
-          >
-            <Plus className="h-4 w-4" /> Inform school of absence
-          </button>
-        </div>
 
-        <div className="mt-5 divide-y divide-[#EEE9F1]">
-          {data.attendanceRecords.slice(0, 5).map((att) => (
-            <div key={att.id} className="flex items-center justify-between py-3">
-              <div className="flex items-center gap-3">
-                <Clock className="h-4 w-4 text-[#817887]" />
-                <span className="text-sm font-semibold text-[#342D3A]">{att.date}</span>
-                {att.timeIn && <span className="text-xs text-[#817887]">({att.timeIn})</span>}
-              </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-xs font-bold text-[#087A50]">
-                <CheckCircle2 className="h-3 w-3" /> {att.status}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {data.absenceReports.length > 0 && (
-          <div className="mt-6 border-t border-[#EEE9F1] pt-4">
-            <p className="mb-3 text-xs font-bold text-[#625B69]">Submitted Absence Notices</p>
-            <div className="space-y-2">
-              {data.absenceReports.map((report) => (
-                <div key={report.id} className="flex items-center justify-between rounded-lg bg-[#F8F6FA] p-3 text-xs">
-                  <div>
-                    <span className="font-bold text-[#29166F]">{report.reason}</span>: {report.startDate} to {report.endDate}
-                    <p className="text-[11px] text-[#625B69] mt-0.5">{report.notes}</p>
+          {data.pupils.map((child) => (
+            <section key={child.id} className="rounded-xl border border-[#E5DFE9] bg-white overflow-hidden shadow-xs">
+              <div className="border-b border-[#EEE9F1] p-5 flex items-center justify-between bg-[#FDFCFE]">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#581C87] text-white font-extrabold text-sm">
+                    {child.avatarInitials}
                   </div>
-                  <span className="rounded-full bg-[#E8E2ED] px-2.5 py-1 font-extrabold text-[#581C87]">
-                    {report.status}
+                  <div>
+                    <h3 className="font-extrabold text-base text-[#29166F]">{child.fullName}</h3>
+                    <p className="text-xs text-[#817887]">{child.class} · {child.classTeacher}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onSelectChild(child.id)}
+                  className="text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                >
+                  View full report &rarr;
+                </button>
+              </div>
+
+              <div className="p-5">
+                <blockquote className="text-sm font-bold text-[#342D3A] italic mb-4">
+                  &ldquo;{child.teacherRemarks}&rdquo;
+                </blockquote>
+                <div className="flex items-center justify-between text-xs text-[#625B69] border-t border-[#EEE9F1] pt-3">
+                  <span>Term Attendance: <strong className="text-[#29166F]">{child.attendanceRate}%</strong></span>
+                  <span>Average Mark: <strong className="text-[#29166F]">{child.currentAverage}%</strong></span>
+                  <span className="font-bold text-[#087A50]">{child.status}</span>
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <>
+          <section className="rounded-xl border border-[#E5DFE9] bg-white">
+            <div className="flex flex-col justify-between gap-4 border-b border-[#EEE9F1] p-5 sm:flex-row sm:items-center sm:p-6">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">
+                  First term snapshot · {pupil.class}
+                </p>
+                <h2 className="mt-1 text-xl font-extrabold text-[#29166F]">
+                  Continuous assessment: {pupil.fullName}
+                </h2>
+              </div>
+              <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#581C87] px-4 text-xs font-extrabold text-white cursor-pointer hover:bg-[#29166F] transition">
+                <Download className="h-4 w-4" /> Download report
+              </button>
+            </div>
+            <div className="divide-y divide-[#EEE9F1] px-5 sm:px-6">
+              {data.academicProgress.map((item) => (
+                <div key={item.subject} className="grid gap-2 py-5 sm:grid-cols-[1fr_100px_120px] sm:items-center">
+                  <p className="text-sm font-bold text-[#3E3744]">{item.subject}</p>
+                  <p className="text-2xl font-extrabold text-[#29166F]">{item.score}%</p>
+                  <p className="text-xs font-bold text-[#087A50]">{item.grade}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
+            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">Teacher&apos;s note</p>
+            <blockquote className="mt-4 max-w-3xl text-lg font-bold leading-8 text-[#342D3A]">
+              &ldquo;{pupil.teacherRemarks}&rdquo;
+            </blockquote>
+            <p className="mt-4 text-xs text-[#817887]">
+              {pupil.classTeacher} · {pupil.teacherRole || `${pupil.class} Lead Teacher`}
+            </p>
+          </section>
+
+          {/* Attendance Register for Selected Child */}
+          <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 sm:p-6">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#581C87]">Attendance Register</p>
+                <h3 className="mt-1 text-lg font-extrabold text-[#29166F]">
+                  Recent Clock-in Records: {pupil.firstName}
+                </h3>
+              </div>
+              <button
+                onClick={onOpenAbsenceModal}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+              >
+                <Plus className="h-4 w-4" /> Inform school of absence
+              </button>
+            </div>
+
+            <div className="mt-5 divide-y divide-[#EEE9F1]">
+              {data.attendanceRecords.slice(0, 5).map((att) => (
+                <div key={att.id} className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-4 w-4 text-[#817887]" />
+                    <span className="text-sm font-semibold text-[#342D3A]">{att.date}</span>
+                    {att.timeIn && <span className="text-xs text-[#817887]">({att.timeIn})</span>}
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-xs font-bold text-[#087A50]">
+                    <CheckCircle2 className="h-3 w-3" /> {att.status}
                   </span>
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </section>
+
+            {data.absenceReports.length > 0 && (
+              <div className="mt-6 border-t border-[#EEE9F1] pt-4">
+                <p className="mb-3 text-xs font-bold text-[#625B69]">Submitted Absence Notices</p>
+                <div className="space-y-2">
+                  {data.absenceReports.map((report) => (
+                    <div key={report.id} className="flex items-center justify-between rounded-lg bg-[#F8F6FA] p-3 text-xs">
+                      <div>
+                        <span className="font-bold text-[#29166F]">{report.reason}</span>: {report.startDate} to {report.endDate}
+                        <p className="text-[11px] text-[#625B69] mt-0.5">{report.notes}</p>
+                      </div>
+                      <span className="rounded-full bg-[#E8E2ED] px-2.5 py-1 font-extrabold text-[#581C87]">
+                        {report.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 };
 
-const Fees: React.FC<{ data: ParentDashboardData; onOpenProofModal: () => void }> = ({
-  data,
-  onOpenProofModal,
-}) => {
+/**
+ * 4. Fees & Receipts View
+ */
+const Fees: React.FC<{
+  data: ParentDashboardData;
+  onOpenProofModal: () => void;
+  onSelectChild: (pupilId: string) => void;
+}> = ({ data, onOpenProofModal, onSelectChild }) => {
+  const isFamily = data.isFamilyView;
   const totalBalance = data.invoices.reduce((acc, inv) => acc + inv.balance, 0);
 
   return (
     <div className="space-y-6">
       <section className="grid overflow-hidden rounded-xl bg-[#29166F] text-white sm:grid-cols-[1fr_auto]">
         <div className="p-6 sm:p-8">
-          <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">First term balance</p>
-          <p className="mt-3 text-4xl font-extrabold">₦{totalBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}</p>
+          <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">
+            {isFamily ? "Total family balance across all children" : `First term balance · ${data.selectedPupil?.firstName}`}
+          </p>
+          <p className="mt-3 text-4xl font-extrabold">
+            ₦{totalBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+          </p>
           <p className="mt-2 text-sm text-white/65">
-            {totalBalance === 0 ? "All current invoices have been settled." : "Outstanding balance on current term invoice."}
+            {totalBalance === 0
+              ? "All current invoices for your family have been settled."
+              : "Outstanding balance on pending invoice."}
           </p>
         </div>
         <div className="flex items-center border-t border-white/12 bg-[#351A7D] px-8 py-6 sm:border-l sm:border-t-0">
           <span className="inline-flex items-center gap-2 text-sm font-extrabold">
             <CheckCircle2 className="h-5 w-5 text-[#E9DB3D]" />
-            {totalBalance === 0 ? "Payment complete" : "Due for payment"}
+            {totalBalance === 0 ? "Payment complete" : "Payment pending"}
           </span>
         </div>
       </section>
 
+      {/* Invoices List */}
       <section className="rounded-xl border border-[#E5DFE9] bg-white">
         <div className="flex flex-col justify-between gap-4 border-b border-[#EEE9F1] p-5 sm:flex-row sm:items-center sm:p-6">
-          <h2 className="text-xl font-extrabold text-[#29166F]">Receipts & Payment History</h2>
+          <div>
+            <h2 className="text-xl font-extrabold text-[#29166F]">
+              {isFamily ? "All Enrolled Pupils Fee Invoices" : `Term Invoices: ${data.selectedPupil?.firstName}`}
+            </h2>
+            <p className="text-xs text-[#817887] mt-1">First term 2026/2027 academic session</p>
+          </div>
           <button
             onClick={onOpenProofModal}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
@@ -1085,23 +1658,71 @@ const Fees: React.FC<{ data: ParentDashboardData; onOpenProofModal: () => void }
             <Plus className="h-4 w-4" /> Upload payment receipt
           </button>
         </div>
+
         <div className="divide-y divide-[#EEE9F1]">
-          {data.payments.map((pmt) => (
-            <div
-              key={pmt.id}
-              className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:px-6"
-            >
-              <div>
-                <p className="text-sm font-extrabold text-[#342D3A]">{pmt.itemDescription}</p>
-                <p className="mt-1 text-xs text-[#817887]">
-                  {pmt.receiptNumber} · {pmt.paymentDate} · ₦{pmt.amount.toLocaleString()} ({pmt.paymentMethod})
-                </p>
+          {data.invoices.map((inv) => {
+            const child = data.pupils.find((p) => p.id === inv.pupilId);
+            return (
+              <div key={inv.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-[#29166F] text-sm">{inv.title}</span>
+                    {child && (
+                      <span className="text-[10px] bg-[#F1ECF6] text-[#581C87] font-bold px-2 py-0.5 rounded-md">
+                        {child.firstName} ({child.class})
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#817887] mt-1">
+                    Invoice: {inv.invoiceNumber} &bull; Due date: {inv.dueDate}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-base font-extrabold text-[#29166F]">
+                      ₦{inv.amountDue.toLocaleString()}
+                    </p>
+                    <span className="text-xs font-bold text-[#087A50]">{inv.status}</span>
+                  </div>
+                </div>
               </div>
-              <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F8F6FA] transition cursor-pointer">
-                <Download className="h-4 w-4" /> Receipt
-              </button>
-            </div>
-          ))}
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Receipts List */}
+      <section className="rounded-xl border border-[#E5DFE9] bg-white">
+        <div className="border-b border-[#EEE9F1] p-5 sm:p-6">
+          <h2 className="text-xl font-extrabold text-[#29166F]">Receipts & Payment History</h2>
+        </div>
+        <div className="divide-y divide-[#EEE9F1]">
+          {data.payments.map((pmt) => {
+            const child = data.pupils.find((p) => p.id === pmt.pupilId);
+            return (
+              <div
+                key={pmt.id}
+                className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:px-6"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-extrabold text-[#342D3A]">{pmt.itemDescription}</p>
+                    {child && (
+                      <span className="text-[10px] bg-[#E8E2ED] text-[#29166F] font-bold px-1.5 py-0.5 rounded">
+                        {child.firstName}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-[#817887]">
+                    {pmt.receiptNumber} · {pmt.paymentDate} · ₦{pmt.amount.toLocaleString()} ({pmt.paymentMethod})
+                  </p>
+                </div>
+                <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F8F6FA] transition cursor-pointer">
+                  <Download className="h-4 w-4" /> Receipt
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {data.paymentProofs.length > 0 && (
@@ -1110,22 +1731,28 @@ const Fees: React.FC<{ data: ParentDashboardData; onOpenProofModal: () => void }
               Submitted Payment Proofs
             </p>
             <div className="space-y-2">
-              {data.paymentProofs.map((proof) => (
-                <div
-                  key={proof.id}
-                  className="flex items-center justify-between rounded-lg border border-[#E8E2ED] bg-white p-3 text-xs"
-                >
-                  <div>
-                    <span className="font-bold text-[#29166F]">{proof.bankName}</span> · Ref: {proof.referenceNumber}
-                    <p className="text-[11px] text-[#817887]">
-                      ₦{proof.amount.toLocaleString()} on {proof.paymentDate}
-                    </p>
+              {data.paymentProofs.map((proof) => {
+                const child = data.pupils.find((p) => p.id === proof.pupilId);
+                return (
+                  <div
+                    key={proof.id}
+                    className="flex items-center justify-between rounded-lg border border-[#E8E2ED] bg-white p-3 text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[#29166F]">{proof.bankName}</span>
+                        {child && <span className="text-[10px] text-[#581C87] font-semibold">({child.firstName})</span>}
+                      </div>
+                      <p className="text-[11px] text-[#817887] mt-0.5">
+                        Ref: {proof.referenceNumber} &bull; ₦{proof.amount.toLocaleString()} on {proof.paymentDate}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#E5F7ED] px-3 py-1 font-extrabold text-[#087A50]">
+                      {proof.status}
+                    </span>
                   </div>
-                  <span className="rounded-full bg-[#E5F7ED] px-3 py-1 font-extrabold text-[#087A50]">
-                    {proof.status}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -1134,16 +1761,26 @@ const Fees: React.FC<{ data: ParentDashboardData; onOpenProofModal: () => void }
   );
 };
 
+/**
+ * 5. Notices View
+ */
 const Notices: React.FC<{ data: ParentDashboardData }> = ({ data }) => (
   <div className="overflow-hidden rounded-xl border border-[#E5DFE9] bg-white">
     {data.notices.map((notice, index) => (
       <article
         key={notice.id}
-        className="grid gap-4 border-b border-[#EEE9F1] p-5 last:border-0 sm:grid-cols-[110px_1fr_auto] sm:items-start sm:p-6"
+        className="grid gap-4 border-b border-[#EEE9F1] p-5 last:border-0 sm:grid-cols-[130px_1fr_auto] sm:items-start sm:p-6"
       >
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#581C87]">
-          {notice.category}
-        </p>
+        <div>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#581C87]">
+            {notice.category}
+          </p>
+          {notice.targetAudience && (
+            <span className="inline-block mt-1 text-[9px] font-bold text-[#817887] bg-[#F1ECF6] px-2 py-0.5 rounded">
+              {notice.targetAudience}
+            </span>
+          )}
+        </div>
         <div>
           <h2 className="text-base font-extrabold text-[#29166F]">{notice.title}</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#625B69]">{notice.copy}</p>

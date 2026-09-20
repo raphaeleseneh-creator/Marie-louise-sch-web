@@ -52,6 +52,7 @@ export interface Pupil {
   teacherRole?: string; // e.g. "Primary 3 Lead Teacher"
   status: StudentStatus;
   avatarInitials: string; // e.g. "KC"
+  photoUrl?: string; // Optional student portrait photo
   attendanceRate: number; // e.g. 98.2
   currentAverage: number; // e.g. 90.3
   academicTerm: string; // e.g. "First term · 2026/2027 academic session"
@@ -231,10 +232,21 @@ export interface SubjectGradeSummary {
   trend?: "up" | "steady" | "down";
 }
 
+export interface PupilFamilyCard {
+  pupil: Pupil;
+  attendanceRate: number;
+  currentAverage: number;
+  unpaidBalance: number;
+  invoiceCount: number;
+}
+
 export interface ParentDashboardData {
   parent: Parent;
   pupils: Pupil[];
-  selectedPupil: Pupil;
+  selectedPupil: Pupil | null;
+  activePupilId: string; // "family" or pupil record ID
+  isFamilyView: boolean;
+  familyCards: PupilFamilyCard[];
   academicProgress: SubjectGradeSummary[];
   calendarEvents: CalendarEvent[];
   notices: Notice[];

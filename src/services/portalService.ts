@@ -11,6 +11,7 @@ import type {
   PaymentProof,
   Notice,
   SubjectGradeSummary,
+  PupilFamilyCard,
   ParentDashboardData,
   CreateAbsenceReportInput,
   CreatePaymentProofInput,
@@ -94,17 +95,17 @@ class LocalParentPortalService implements ParentPortalService {
   ): Promise<{ success: boolean; parent?: Parent; error?: string }> {
     const trimmed = identity.trim().toLowerCase();
 
-    // Check if demo preview mode or valid credentials
     if (!trimmed) {
       return { success: false, error: "Please enter your email or admission number." };
     }
 
     // Match by email or admission number
-    const matchedParent = this.parents.find(
-      (p) =>
-        p.email.toLowerCase() === trimmed ||
-        p.admissionIdentity.toLowerCase() === trimmed
-    ) || this.parents[0]; // fallback to primary demo parent for ease of testing
+    const matchedParent =
+      this.parents.find(
+        (p) =>
+          p.email.toLowerCase() === trimmed ||
+          p.admissionIdentity.toLowerCase() === trimmed
+      ) || this.parents[0];
 
     return {
       success: true,
@@ -124,15 +125,35 @@ class LocalParentPortalService implements ParentPortalService {
       pupil.parentIds.includes(activeParent.id)
     );
 
-    const activePupil =
-      (pupilId ? parentPupils.find((p) => p.id === pupilId) : null) ||
-      parentPupils[0] ||
-      this.pupils[0];
+    const isFamilyView = pupilId === "family";
+    const selectedPupil = isFamilyView
+      ? null
+      : (pupilId ? parentPupils.find((p) => p.id === pupilId) : null) ||
+        parentPupils[0] ||
+        this.pupils[0];
 
-    // Compute academic progress from assignments for the selected pupil
-    const pupilAssignments = this.assignments.filter(
-      (a) => a.pupilId === activePupil.id
-    );
+    const activePupilId = isFamilyView ? "family" : (selectedPupil?.id || parentPupils[0]?.id || "");
+
+    // Build family overview summary cards for each child
+    const familyCards: PupilFamilyCard[] = parentPupils.map((pupil) => {
+      const pupilInvs = this.invoices.filter((i) => i.pupilId === pupil.id);
+      const unpaidBalance = pupilInvs.reduce((acc, inv) => acc + inv.balance, 0);
+
+      return {
+        pupil,
+        attendanceRate: pupil.attendanceRate,
+        currentAverage: pupil.currentAverage,
+        unpaidBalance,
+        invoiceCount: pupilInvs.length,
+      };
+    });
+
+    // Assignments & academic progress
+    const pupilAssignments = selectedPupil
+      ? this.assignments.filter((a) => a.pupilId === selectedPupil.id)
+      : this.assignments.filter((a) =>
+          parentPupils.some((p) => p.id === a.pupilId)
+        );
 
     const academicProgress: SubjectGradeSummary[] = pupilAssignments.map((a) => ({
       subject: a.subject,
@@ -141,34 +162,54 @@ class LocalParentPortalService implements ParentPortalService {
       trend: "steady",
     }));
 
-    const pupilInvoices = this.invoices.filter(
-      (i) => i.pupilId === activePupil.id
-    );
+    // Invoices and payments
+    const pupilInvoices = selectedPupil
+      ? this.invoices.filter((i) => i.pupilId === selectedPupil.id)
+      : this.invoices.filter((i) =>
+          parentPupils.some((p) => p.id === i.pupilId)
+        );
 
-    const pupilPayments = this.payments.filter(
-      (p) => p.pupilId === activePupil.id
-    );
+    const pupilPayments = selectedPupil
+      ? this.payments.filter((payment) => payment.pupilId === selectedPupil.id)
+      : this.payments.filter((payment) =>
+          parentPupils.some((pupil) => pupil.id === payment.pupilId)
+        );
 
-    const pupilAttendance = this.attendanceRecords.filter(
-      (att) => att.pupilId === activePupil.id
-    );
+    // Attendance
+    const pupilAttendance = selectedPupil
+      ? this.attendanceRecords.filter((att) => att.pupilId === selectedPupil.id)
+      : this.attendanceRecords.filter((att) =>
+          parentPupils.some((p) => p.id === att.pupilId)
+        );
 
-    const pupilAbsences = this.absenceReports.filter(
-      (abs) => abs.pupilId === activePupil.id
-    );
+    // Absence notices
+    const pupilAbsences = selectedPupil
+      ? this.absenceReports.filter((abs) => abs.pupilId === selectedPupil.id)
+      : this.absenceReports.filter((abs) =>
+          parentPupils.some((p) => p.id === abs.pupilId)
+        );
 
-    const pupilProofs = this.paymentProofs.filter(
-      (prf) => prf.pupilId === activePupil.id
-    );
+    // Payment proofs
+    const pupilProofs = selectedPupil
+      ? this.paymentProofs.filter((prf) => prf.pupilId === selectedPupil.id)
+      : this.paymentProofs.filter((prf) =>
+          parentPupils.some((p) => p.id === prf.pupilId)
+        );
 
-    const pupilTimetable = this.timetables.filter(
-      (t) => t.class === activePupil.class
-    );
+    // Timetable
+    const pupilTimetable = selectedPupil
+      ? this.timetables.filter((t) => t.class === selectedPupil.class)
+      : this.timetables.filter((t) =>
+          parentPupils.some((p) => p.class === t.class)
+        );
 
     return {
       parent: activeParent,
       pupils: parentPupils,
-      selectedPupil: activePupil,
+      selectedPupil,
+      activePupilId,
+      isFamilyView,
+      familyCards,
       academicProgress,
       calendarEvents: [...this.calendarEvents],
       notices: [...this.notices],

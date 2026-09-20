@@ -16,7 +16,7 @@ import type {
 /**
  * Stable Airtable-style demo dataset.
  * Every record uses authentic 17-character Airtable-style IDs (`rec...`).
- * Stored centrally outside UI components to enable 1:1 migration to Airtable REST API.
+ * Centrally managed outside UI components for seamless 1:1 migration to Airtable REST API.
  */
 
 export const demoParents: Parent[] = [
@@ -30,8 +30,8 @@ export const demoParents: Parent[] = [
     admissionIdentity: "MLS-0012",
     relationship: "Mother",
     address: "14 Admiralty Way, Lekki Phase 1, Lagos",
-    pupilLinkIds: ["recLnk001ParPup1", "recLnk002ParPup2"],
-    pupilIds: ["recPup001Kamsi", "recPup002Somto"],
+    pupilLinkIds: ["recLnk001ParPup1", "recLnk002ParPup2", "recLnk003ParPup3"],
+    pupilIds: ["recPup001Kamsi", "recPup002Somto", "recPup003Chisom"],
     createdAt: "2024-08-15T09:00:00Z",
   },
 ];
@@ -77,8 +77,30 @@ export const demoPupils: Pupil[] = [
     currentAverage: 92.5,
     academicTerm: "First term · 2026/2027 academic session",
     teacherRemarks:
-      "Somtochukwu is enthusiastic, gentle with her peers, and makes rapid strides in early phonics.",
+      "Somtochukwu is enthusiastic, gentle with her peers, and makes rapid strides in early phonics and numeracy.",
     parentLinkIds: ["recLnk002ParPup2"],
+    parentIds: ["recPar001Chidinma"],
+  },
+  {
+    id: "recPup003Chisom",
+    admissionNumber: "MLS-P6-009",
+    firstName: "Chisom",
+    lastName: "Chukwuma",
+    fullName: "Chisom Chukwuma",
+    class: "Primary 6",
+    gender: "Male",
+    dateOfBirth: "2015-11-23",
+    house: "Green House",
+    classTeacher: "Mr O. Babatunde",
+    teacherRole: "Primary 6 Lead Teacher & Science Head",
+    status: "Good standing",
+    avatarInitials: "CC",
+    attendanceRate: 97.8,
+    currentAverage: 94.1,
+    academicTerm: "First term · 2026/2027 academic session",
+    teacherRemarks:
+      "Chisom displays exceptional analytical maturity in science and leads student council initiatives with humility.",
+    parentLinkIds: ["recLnk003ParPup3"],
     parentIds: ["recPar001Chidinma"],
   },
 ];
@@ -102,9 +124,19 @@ export const demoParentPupilLinks: ParentPupilLink[] = [
     canPickup: true,
     emergencyContact: true,
   },
+  {
+    id: "recLnk003ParPup3",
+    parentId: "recPar001Chidinma",
+    pupilId: "recPup003Chisom",
+    relationshipType: "Mother",
+    isPrimaryContact: true,
+    canPickup: true,
+    emergencyContact: true,
+  },
 ];
 
 export const demoAssignments: Assignment[] = [
+  // Assignments for Kamsiyochukwu (Primary 3)
   {
     id: "recAsg001Math",
     pupilId: "recPup001Kamsi",
@@ -161,9 +193,126 @@ export const demoAssignments: Assignment[] = [
     status: "Graded",
     teacherFeedback: "Exemplary citizenship and thoughtful respect for peers.",
   },
+
+  // Assignments for Somtochukwu (Nursery 2)
+  {
+    id: "recAsg101Phon",
+    pupilId: "recPup002Somto",
+    subject: "Early phonics & sound recognition",
+    title: "Phase 2 Digraphs & Rhyme Match",
+    description: "Listening to phonetic blends and identifying initial consonant sounds.",
+    dueDate: "2026-09-15",
+    submittedDate: "2026-09-15",
+    score: 95,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Somto recognizes all digraph flashcards with sparkling joy!",
+  },
+  {
+    id: "recAsg102Num",
+    pupilId: "recPup002Somto",
+    subject: "Early numeracy & patterns",
+    title: "Geometric Shapes & Counting to 30",
+    description: "Counting with colourful Montessori beads and sorting regular polygons.",
+    dueDate: "2026-09-16",
+    submittedDate: "2026-09-16",
+    score: 92,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Outstanding counting precision and great shape grouping.",
+  },
+  {
+    id: "recAsg103Art",
+    pupilId: "recPup002Somto",
+    subject: "Creative arts & expression",
+    title: "Colour Wheel Finger Painting",
+    description: "Mixing primary colours to produce orange, green, and purple hues.",
+    dueDate: "2026-09-17",
+    submittedDate: "2026-09-17",
+    score: 90,
+    maxScore: 100,
+    grade: "Excellent",
+    status: "Graded",
+    teacherFeedback: "Very expressive color combinations and steady motor control.",
+  },
+  {
+    id: "recAsg104Soc",
+    pupilId: "recPup002Somto",
+    subject: "Social habits & character values",
+    title: "Circle Time Sharing & Kindness",
+    description: "Peer collaboration and tidying learning zones after Montessori play.",
+    dueDate: "2026-09-18",
+    submittedDate: "2026-09-18",
+    score: 93,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Warm, empathetic and always helps classmates tidy up.",
+  },
+
+  // Assignments for Chisom (Primary 6)
+  {
+    id: "recAsg201Math",
+    pupilId: "recPup003Chisom",
+    subject: "Advanced mathematics & pre-algebra",
+    title: "Algebraic Expressions & Geometric Angles",
+    description: "Multi-step algebraic word problems and coordinate grid geometry.",
+    dueDate: "2026-09-15",
+    submittedDate: "2026-09-14",
+    score: 96,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Flawless mathematical reasoning and clear proofs.",
+  },
+  {
+    id: "recAsg202Sci",
+    pupilId: "recPup003Chisom",
+    subject: "Integrated science & STEM",
+    title: "Renewable Energy & Wind Turbine Models",
+    description: "Designing a miniature kinetic rotor and documenting energy efficiency.",
+    dueDate: "2026-09-17",
+    submittedDate: "2026-09-16",
+    score: 95,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Demonstrated exemplary engineering curiosity and methodical notes.",
+  },
+  {
+    id: "recAsg203Eng",
+    pupilId: "recPup003Chisom",
+    subject: "Literacy & argumentative essays",
+    title: "Persuasive Writing: Conservation in Nigeria",
+    description: "Structured five-paragraph persuasive essay with verified citations.",
+    dueDate: "2026-09-18",
+    submittedDate: "2026-09-17",
+    score: 92,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "Compelling rhetoric, eloquent phrasing, and sound arguments.",
+  },
+  {
+    id: "recAsg204Civ",
+    pupilId: "recPup003Chisom",
+    subject: "Civic governance & world cultures",
+    title: "Democratic Principles & Legal Systems",
+    description: "Comparative study of local governance and the rights of the citizen.",
+    dueDate: "2026-09-19",
+    submittedDate: "2026-09-18",
+    score: 94,
+    maxScore: 100,
+    grade: "Distinction",
+    status: "Graded",
+    teacherFeedback: "High level of civic literacy and mature leadership perspective.",
+  },
 ];
 
 export const demoAttendanceRecords: AttendanceRecord[] = [
+  // Kamsiyochukwu attendance
   {
     id: "recAtt001Sept18",
     pupilId: "recPup001Kamsi",
@@ -204,9 +353,70 @@ export const demoAttendanceRecords: AttendanceRecord[] = [
     timeIn: "07:45 AM",
     remarks: "On time.",
   },
+
+  // Somtochukwu attendance
+  {
+    id: "recAtt101Sept18",
+    pupilId: "recPup002Somto",
+    date: "2026-09-18",
+    status: "Present",
+    timeIn: "07:46 AM",
+    remarks: "Happy arrival with warm smile.",
+  },
+  {
+    id: "recAtt102Sept17",
+    pupilId: "recPup002Somto",
+    date: "2026-09-17",
+    status: "Present",
+    timeIn: "07:48 AM",
+    remarks: "On time.",
+  },
+  {
+    id: "recAtt103Sept16",
+    pupilId: "recPup002Somto",
+    date: "2026-09-16",
+    status: "Present",
+    timeIn: "07:45 AM",
+    remarks: "On time.",
+  },
+  {
+    id: "recAtt104Sept15",
+    pupilId: "recPup002Somto",
+    date: "2026-09-15",
+    status: "Present",
+    timeIn: "07:40 AM",
+    remarks: "Early arrival.",
+  },
+
+  // Chisom attendance
+  {
+    id: "recAtt201Sept18",
+    pupilId: "recPup003Chisom",
+    date: "2026-09-18",
+    status: "Present",
+    timeIn: "07:38 AM",
+    remarks: "Early arrival for prefect assembly prep.",
+  },
+  {
+    id: "recAtt202Sept17",
+    pupilId: "recPup003Chisom",
+    date: "2026-09-17",
+    status: "Present",
+    timeIn: "07:40 AM",
+    remarks: "On time.",
+  },
+  {
+    id: "recAtt203Sept16",
+    pupilId: "recPup003Chisom",
+    date: "2026-09-16",
+    status: "Present",
+    timeIn: "07:42 AM",
+    remarks: "On time.",
+  },
 ];
 
 export const demoInvoices: Invoice[] = [
+  // Kamsiyochukwu Invoices
   {
     id: "recInv001Term1",
     invoiceNumber: "MLS-INV-2026-0082",
@@ -214,7 +424,7 @@ export const demoInvoices: Invoice[] = [
     parentId: "recPar001Chidinma",
     term: "First Term 2026/2027",
     academicYear: "2026/2027",
-    title: "First Term Tuition & Core Academic Resources",
+    title: "First Term Primary 3 Tuition & Core Resources",
     amountDue: 485000,
     amountPaid: 485000,
     balance: 0,
@@ -230,9 +440,77 @@ export const demoInvoices: Invoice[] = [
     parentId: "recPar001Chidinma",
     term: "First Term 2026/2027",
     academicYear: "2026/2027",
-    title: "Co-curricular Clubs & Digital Library Subscription",
+    title: "Primary 3 Co-curricular Clubs & Digital Library",
     amountDue: 75000,
     amountPaid: 75000,
+    balance: 0,
+    currency: "NGN",
+    dueDate: "2026-09-05",
+    issueDate: "2026-08-20",
+    status: "Settled",
+  },
+
+  // Somtochukwu Invoices
+  {
+    id: "recInv101Nurs2",
+    invoiceNumber: "MLS-INV-2026-0045",
+    pupilId: "recPup002Somto",
+    parentId: "recPar001Chidinma",
+    term: "First Term 2026/2027",
+    academicYear: "2026/2027",
+    title: "First Term Early Years Tuition & Play Materials",
+    amountDue: 420000,
+    amountPaid: 420000,
+    balance: 0,
+    currency: "NGN",
+    dueDate: "2026-09-10",
+    issueDate: "2026-08-15",
+    status: "Settled",
+  },
+  {
+    id: "recInv102Music",
+    invoiceNumber: "MLS-INV-2026-0052",
+    pupilId: "recPup002Somto",
+    parentId: "recPar001Chidinma",
+    term: "First Term 2026/2027",
+    academicYear: "2026/2027",
+    title: "Nursery Music & Movement Programme",
+    amountDue: 45000,
+    amountPaid: 45000,
+    balance: 0,
+    currency: "NGN",
+    dueDate: "2026-09-05",
+    issueDate: "2026-08-20",
+    status: "Settled",
+  },
+
+  // Chisom Invoices
+  {
+    id: "recInv201Prim6",
+    invoiceNumber: "MLS-INV-2026-0012",
+    pupilId: "recPup003Chisom",
+    parentId: "recPar001Chidinma",
+    term: "First Term 2026/2027",
+    academicYear: "2026/2027",
+    title: "First Term Primary 6 Tuition & Exam Prep Package",
+    amountDue: 540000,
+    amountPaid: 540000,
+    balance: 0,
+    currency: "NGN",
+    dueDate: "2026-09-10",
+    issueDate: "2026-08-15",
+    status: "Settled",
+  },
+  {
+    id: "recInv202STEM",
+    invoiceNumber: "MLS-INV-2026-0038",
+    pupilId: "recPup003Chisom",
+    parentId: "recPar001Chidinma",
+    term: "First Term 2026/2027",
+    academicYear: "2026/2027",
+    title: "Senior Primary STEM & Coding Robotics Club",
+    amountDue: 85000,
+    amountPaid: 85000,
     balance: 0,
     currency: "NGN",
     dueDate: "2026-09-05",
@@ -242,6 +520,7 @@ export const demoInvoices: Invoice[] = [
 ];
 
 export const demoPayments: Payment[] = [
+  // Kamsiyochukwu Payments
   {
     id: "recPay001Tuit",
     receiptNumber: "MLS-RCP-8921",
@@ -270,9 +549,70 @@ export const demoPayments: Payment[] = [
     status: "Verified",
     reference: "FT-FBN-8764120",
   },
+
+  // Somtochukwu Payments
+  {
+    id: "recPay101Nurs",
+    receiptNumber: "MLS-RCP-8650",
+    invoiceId: "recInv101Nurs2",
+    pupilId: "recPup002Somto",
+    parentId: "recPar001Chidinma",
+    itemDescription: "Nursery 2 tuition & Montessori resources",
+    amount: 420000,
+    currency: "NGN",
+    paymentDate: "05 Sep 2026",
+    paymentMethod: "Bank Transfer",
+    status: "Verified",
+    reference: "FT-GTB-8650119",
+  },
+  {
+    id: "recPay102Music",
+    receiptNumber: "MLS-RCP-8688",
+    invoiceId: "recInv102Music",
+    pupilId: "recPup002Somto",
+    parentId: "recPar001Chidinma",
+    itemDescription: "Nursery music & movement programme",
+    amount: 45000,
+    currency: "NGN",
+    paymentDate: "05 Sep 2026",
+    paymentMethod: "Bank Transfer",
+    status: "Verified",
+    reference: "FT-GTB-8688220",
+  },
+
+  // Chisom Payments
+  {
+    id: "recPay201Prim6",
+    receiptNumber: "MLS-RCP-8901",
+    invoiceId: "recInv201Prim6",
+    pupilId: "recPup003Chisom",
+    parentId: "recPar001Chidinma",
+    itemDescription: "Primary 6 tuition & graduation exam prep",
+    amount: 540000,
+    currency: "NGN",
+    paymentDate: "01 Sep 2026",
+    paymentMethod: "Bank Transfer",
+    status: "Verified",
+    reference: "FT-GTB-8901300",
+  },
+  {
+    id: "recPay202STEM",
+    receiptNumber: "MLS-RCP-8942",
+    invoiceId: "recInv202STEM",
+    pupilId: "recPup003Chisom",
+    parentId: "recPar001Chidinma",
+    itemDescription: "Senior Primary STEM & Coding robotics club",
+    amount: 85000,
+    currency: "NGN",
+    paymentDate: "01 Sep 2026",
+    paymentMethod: "Bank Transfer",
+    status: "Verified",
+    reference: "FT-FBN-8942551",
+  },
 ];
 
 export const demoTimetables: TimetableEntry[] = [
+  // Primary 3 timetable
   {
     id: "recTmt001Mon1",
     class: "Primary 3",
@@ -317,27 +657,53 @@ export const demoTimetables: TimetableEntry[] = [
     teacher: "Madame D. Claire",
     room: "Language Studio",
   },
+
+  // Nursery 2 timetable
   {
-    id: "recTmt005Thu1",
-    class: "Primary 3",
-    dayOfWeek: "Thursday",
+    id: "recTmt101Mon1",
+    class: "Nursery 2",
+    dayOfWeek: "Monday",
     period: 1,
-    startTime: "08:15",
-    endTime: "09:00",
-    subject: "Civic & Moral Studies",
-    teacher: "Mrs A. Adeyemi",
-    room: "Room 3A",
+    startTime: "08:30",
+    endTime: "09:15",
+    subject: "Phonics Sounds & Circle Rhymes",
+    teacher: "Ms C. Okon",
+    room: "Early Years Suite",
   },
   {
-    id: "recTmt006Fri1",
-    class: "Primary 3",
-    dayOfWeek: "Friday",
+    id: "recTmt102Mon2",
+    class: "Nursery 2",
+    dayOfWeek: "Monday",
+    period: 2,
+    startTime: "09:15",
+    endTime: "10:00",
+    subject: "Montessori Practical Life & Shapes",
+    teacher: "Ms C. Okon",
+    room: "Early Years Suite",
+  },
+
+  // Primary 6 timetable
+  {
+    id: "recTmt201Mon1",
+    class: "Primary 6",
+    dayOfWeek: "Monday",
     period: 1,
-    startTime: "08:15",
-    endTime: "09:00",
-    subject: "Physical & Health Education",
-    teacher: "Coach E. Bassey",
-    room: "Sports Ground",
+    startTime: "08:00",
+    endTime: "08:50",
+    subject: "Advanced Mathematics",
+    teacher: "Mr O. Babatunde",
+    room: "Room 6A",
+  },
+  {
+    id: "recTmt202Mon2",
+    class: "Primary 6",
+    dayOfWeek: "Monday",
+    period: 2,
+    startTime: "08:50",
+    endTime: "09:40",
+    subject: "General Science & Robotics",
+    teacher: "Mr O. Babatunde",
+    room: "STEM Lab",
   },
 ];
 
@@ -361,13 +727,13 @@ export const demoCalendarEvents: CalendarEvent[] = [
     day: "27",
     month: "SEP",
     category: "School Event",
-    targetClass: "Primary 1 - 3",
+    targetClass: "Primary 1 - 3 & Nursery",
     location: "Library & Courtyard",
   },
   {
     id: "recCal003Sports",
-    title: "Inter-house sports",
-    description: "Annual athletics carnival, track events, and house competition.",
+    title: "Inter-house sports carnival",
+    description: "Annual athletics carnival, track events, and house championship.",
     date: "2026-10-02",
     day: "02",
     month: "OCT",
@@ -401,6 +767,19 @@ export const demoAbsenceReports: AbsenceReport[] = [
     reviewedBy: "School Administration Office",
     acknowledgementNote: "Approved. Excuse recorded on class register.",
   },
+  {
+    id: "recAbs002Sports",
+    pupilId: "recPup003Chisom",
+    parentId: "recPar001Chidinma",
+    startDate: "2026-09-04",
+    endDate: "2026-09-04",
+    reason: "Other",
+    notes: "Regional junior chess championship trials representing Marie Louise School.",
+    status: "Approved",
+    submittedAt: "2026-09-02T11:15:00Z",
+    reviewedBy: "Head of School",
+    acknowledgementNote: "Official school representation authorized.",
+  },
 ];
 
 export const demoPaymentProofs: PaymentProof[] = [
@@ -419,6 +798,21 @@ export const demoPaymentProofs: PaymentProof[] = [
     status: "Approved",
     uploadedAt: "2026-09-08T10:14:00Z",
   },
+  {
+    id: "recPrf002Somto",
+    invoiceId: "recInv101Nurs2",
+    pupilId: "recPup002Somto",
+    parentId: "recPar001Chidinma",
+    amount: 420000,
+    currency: "NGN",
+    paymentDate: "2026-09-05",
+    bankName: "Guaranty Trust Bank",
+    referenceNumber: "FT-GTB-8650119",
+    receiptFileUrl: "/documents/receipts/MLS-RCP-8650.pdf",
+    notes: "Somtochukwu Nursery 2 tuition settlement.",
+    status: "Approved",
+    uploadedAt: "2026-09-05T13:40:00Z",
+  },
 ];
 
 export const demoNotices: Notice[] = [
@@ -429,6 +823,7 @@ export const demoNotices: Notice[] = [
     date: "18 Sep",
     copy: "Primary pupils should bring their labelled project folders to school by Thursday morning.",
     isPriority: true,
+    targetAudience: "Primary School",
   },
   {
     id: "recNot002Reading",
@@ -437,6 +832,7 @@ export const demoNotices: Notice[] = [
     date: "16 Sep",
     copy: "Pupils may bring one favourite storybook for the class reading exchange.",
     isPriority: false,
+    targetAudience: "Nursery & Primary 1-3",
   },
   {
     id: "recNot003MidTerm",
@@ -445,5 +841,6 @@ export const demoNotices: Notice[] = [
     date: "12 Sep",
     copy: "School closes after lessons on Friday and resumes the following Wednesday.",
     isPriority: false,
+    targetAudience: "All School Families",
   },
 ];
