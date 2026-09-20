@@ -1,7 +1,6 @@
 import React from "react";
-import { ArrowRight, ChevronDown, MapPin } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { schoolConfig } from "../../data/school";
 
 interface HeroProps {
   onExploreAdmissions: () => void;
@@ -46,12 +45,12 @@ export const Hero: React.FC<HeroProps> = ({
           <motion.div
             variants={reveal}
             transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-6 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.18em] text-white/82"
+            className="mb-6 flex flex-wrap items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.18em] text-white/82"
           >
             <span className="h-px w-8 bg-[#E9DB3D]" />
             <span>Nursery &amp; Primary School</span>
-            <span className="hidden h-1 w-1 rounded-full bg-[#E9DB3D] sm:block" />
-            <span className="hidden sm:block">Surulere, Lagos</span>
+            <span className="h-1 w-1 rounded-full bg-[#E9DB3D]" />
+            <span>Surulere, Lagos</span>
           </motion.div>
 
           <motion.h1
@@ -102,8 +101,10 @@ export const Hero: React.FC<HeroProps> = ({
           className="absolute bottom-6 left-5 right-5 flex items-end justify-between border-t border-white/25 pt-5 sm:left-8 sm:right-8 lg:left-10 lg:right-10"
         >
           <div className="flex items-center gap-2 text-xs font-semibold text-white/78">
-            <MapPin className="h-4 w-4 text-[#E9DB3D]" />
-            <span>{schoolConfig.location}</span>
+            <span className="h-2 w-2 rounded-full bg-[#E9DB3D] shrink-0" />
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/82 sm:text-xs">
+              Admissions Open &bull; Early Years &amp; Primary
+            </span>
           </div>
           <button
             onClick={onDiscoverSchool}
