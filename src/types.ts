@@ -28,3 +28,5 @@ export interface VisitTourFormData {
   interestedClass: SchoolClass | "";
   message?: string;
 }
+
+export * from "./types/portal";
