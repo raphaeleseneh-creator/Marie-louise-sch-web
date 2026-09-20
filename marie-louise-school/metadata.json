@@ -1,0 +1,8 @@
+{
+  "name": "Marie Louise School",
+  "description": "Official website for Marie Louise School, Surulere, Lagos — a premier Nursery and Primary School nurturing confident, curious, and compassionate learners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

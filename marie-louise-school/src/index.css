@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --school-purple: #581C87;
+  --school-purple-dark: #29166F;
+  --school-yellow: #E9DB3D;
+  --school-gold: #93A437;
+  --background: #FFFFFF;
+  --background-soft: #F7F4FA;
+  --border: #E8E2ED;
+  --text-primary: #27232D;
+  --text-secondary: #625B69;
+  --white: #FFFFFF;
+}
+
+@layer base {
+  body {
+    font-family: 'Manrope', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: var(--text-primary);
+    background-color: var(--background);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom editorial helper utilities */
+.clip-diagonal {
+  clip-path: polygon(0 0, 100% 0, 100% 92%, 0 100%);
+}
+
+.clip-hero-dominant {
+  clip-path: polygon(0 0, 100% 0, 98% 100%, 0% 97%);
+}
+
+.clip-hero-secondary {
+  clip-path: polygon(3% 0, 100% 2%, 97% 100%, 0% 98%);
+}
+
+.clip-editorial-accent {
+  clip-path: polygon(0 4%, 100% 0%, 100% 96%, 0% 100%);
+}
