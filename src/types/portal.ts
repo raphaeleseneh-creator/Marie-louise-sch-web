@@ -12,10 +12,24 @@ export type InvoiceStatus = "Paid" | "Part-paid" | "Outstanding" | "Overdue" | "
 export type PaymentStatus = "Verified" | "Processing" | "Failed";
 export type AssignmentStatus = "Pending" | "Submitted" | "Graded" | "Overdue" | "Completed";
 export type AbsenceReason = "Illness" | "Medical Appointment" | "Family Event" | "Travel" | "Other";
-export type AbsenceStatus = "Submitted" | "Approved" | "Under Review" | "Declined";
+export type AbsenceStatus =
+  | "Submitted"
+  | "Reviewed"
+  | "Approved"
+  | "More Information Required"
+  | "Under Review"
+  | "Declined";
 export type PaymentProofStatus = "Submitted" | "Under Verification" | "Approved" | "Declined";
 export type DayOfWeek = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
-export type PortalView = "overview" | "homework" | "reports" | "fees" | "calendar" | "timetable" | "notices";
+export type PortalView =
+  | "overview"
+  | "homework"
+  | "calendar"
+  | "timetable"
+  | "reports"
+  | "fees"
+  | "requests"
+  | "notices";
 
 /**
  * 1. Parent Model (Airtable: Parents)
@@ -228,15 +242,19 @@ export interface CalendarEvent {
  */
 export interface AbsenceReport {
   id: AirtableRecordId;
+  referenceNumber?: string;
   pupilId: AirtableRecordId;
   parentId: AirtableRecordId;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   reason: AbsenceReason;
   notes: string;
+  supportingDocName?: string;
+  supportingDocUrl?: string;
   status: AbsenceStatus;
   submittedAt: string;
   reviewedBy?: string;
+  reviewedAt?: string;
   acknowledgementNote?: string;
 }
 
@@ -316,6 +334,8 @@ export interface CreateAbsenceReportInput {
   endDate: string;
   reason: AbsenceReason;
   notes: string;
+  supportingDocName?: string;
+  supportingDocUrl?: string;
 }
 
 export interface CreatePaymentProofInput {

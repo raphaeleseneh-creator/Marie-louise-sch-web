@@ -67,7 +67,7 @@ export interface ParentPortalService {
   getTimetable(className: string): Promise<TimetableEntry[]>;
   getCalendarEvents(pupilId?: string, category?: string): Promise<CalendarEvent[]>;
   getNotices(): Promise<Notice[]>;
-  getAbsenceReports(pupilId: string): Promise<AbsenceReport[]>;
+  getAbsenceReports(pupilId?: string): Promise<AbsenceReport[]>;
   getPaymentProofs(pupilId: string): Promise<PaymentProof[]>;
 
   submitAbsenceReport(input: CreateAbsenceReportInput): Promise<AbsenceReport>;
@@ -288,8 +288,11 @@ class LocalParentPortalService implements ParentPortalService {
     return [...this.notices];
   }
 
-  async getAbsenceReports(pupilId: string): Promise<AbsenceReport[]> {
-    return this.absenceReports.filter((r) => r.pupilId === pupilId);
+  async getAbsenceReports(pupilId?: string): Promise<AbsenceReport[]> {
+    if (pupilId && pupilId !== "all" && pupilId !== "family") {
+      return this.absenceReports.filter((r) => r.pupilId === pupilId);
+    }
+    return [...this.absenceReports];
   }
 
   async getPaymentProofs(pupilId: string): Promise<PaymentProof[]> {
@@ -297,16 +300,21 @@ class LocalParentPortalService implements ParentPortalService {
   }
 
   async submitAbsenceReport(input: CreateAbsenceReportInput): Promise<AbsenceReport> {
+    const randomSeq = Math.floor(1000 + Math.random() * 9000);
     const newReport: AbsenceReport = {
       id: `recAbs${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`,
+      referenceNumber: `ABS-2026-${randomSeq}`,
       pupilId: input.pupilId,
       parentId: input.parentId,
       startDate: input.startDate,
       endDate: input.endDate,
       reason: input.reason,
       notes: input.notes,
+      supportingDocName: input.supportingDocName,
+      supportingDocUrl: input.supportingDocUrl,
       status: "Submitted",
       submittedAt: new Date().toISOString(),
+      acknowledgementNote: "Notice received by local portal demo service. Pending administrative desk verification.",
     };
 
     this.absenceReports.unshift(newReport);

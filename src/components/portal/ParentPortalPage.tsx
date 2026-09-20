@@ -54,6 +54,8 @@ import type {
   ParentDashboardData,
   PortalView,
   AbsenceReason,
+  AbsenceReport,
+  AbsenceStatus,
   Assignment,
   Pupil,
   Invoice,
@@ -82,6 +84,7 @@ const portalNavigation: { id: PortalView; label: string; icon: React.ElementType
   { id: "timetable", label: "Timetable", icon: Clock },
   { id: "reports", label: "Reports & attendance", icon: FileText },
   { id: "fees", label: "Fees & receipts", icon: CreditCard },
+  { id: "requests", label: "Requests", icon: FileCheck2 },
   { id: "notices", label: "Notices", icon: Bell },
 ];
 
@@ -749,7 +752,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               {activeView === "reports" && dashboardData ? (
                 <Reports
                   data={dashboardData}
-                  onOpenAbsenceModal={() => setIsAbsenceModalOpen(true)}
+                  onOpenAbsenceModal={() => setActiveView("requests")}
                   onSelectChild={handleSwitchPupil}
                 />
               ) : null}
@@ -774,6 +777,15 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                   data={dashboardData}
                   onOpenProofModal={() => setIsProofModalOpen(true)}
                   onSelectChild={handleSwitchPupil}
+                  onNotify={(msg) => setActionSuccess(msg)}
+                />
+              ) : null}
+
+              {activeView === "requests" && dashboardData ? (
+                <RequestsView
+                  data={dashboardData}
+                  onSelectChild={handleSwitchPupil}
+                  onRefreshData={() => loadPortalData(activePupilId)}
                   onNotify={(msg) => setActionSuccess(msg)}
                 />
               ) : null}
@@ -4952,6 +4964,1008 @@ const Fees: React.FC<{
     </div>
   );
 };
+
+/**
+ * 6. Requests & Absence Management View (Airtable-Ready Architecture)
+ */
+interface RequestsViewProps {
+  data: ParentDashboardData;
+  onSelectChild: (pupilId: string) => void;
+  onRefreshData?: () => void;
+  onNotify?: (message: string) => void;
+}
+
+const RequestsView: React.FC<RequestsViewProps> = ({
+  data,
+  onSelectChild,
+  onRefreshData,
+  onNotify,
+}) => {
+  const [activeTab, setActiveTab] = useState<"new-request" | "history">("new-request");
+
+  // Step state: 1 = Form details, 2 = Review & Verify, 3 = Confirmation
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // Form Fields
+  const [selectedPupilId, setSelectedPupilId] = useState<string>(
+    data.selectedPupil?.id || data.pupils[0]?.id || ""
+  );
+
+  // Default dates: tomorrow as default absence start date
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  });
+
+  const [reason, setReason] = useState<AbsenceReason>("Illness");
+  const [notes, setNotes] = useState<string>("");
+  const [supportingDocName, setSupportingDocName] = useState<string>("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submittedReport, setSubmittedReport] = useState<AbsenceReport | null>(null);
+
+  // History filters
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<
+    "all" | "Submitted" | "Reviewed" | "Approved" | "More Information Required"
+  >("all");
+  const [historyPupilFilter, setHistoryPupilFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // Sync selected pupil if parent changed active child from global header
+  useEffect(() => {
+    if (data.selectedPupil) {
+      setSelectedPupilId(data.selectedPupil.id);
+    }
+  }, [data.selectedPupil]);
+
+  // Selected pupil object for the form
+  const activePupil = useMemo(() => {
+    return data.pupils.find((p) => p.id === selectedPupilId) || data.pupils[0];
+  }, [data.pupils, selectedPupilId]);
+
+  // Calculate duration in days
+  const calculateDays = (start: string, end: string): number => {
+    if (!start || !end) return 1;
+    const s = new Date(start).getTime();
+    const e = new Date(end).getTime();
+    if (isNaN(s) || isNaN(e) || e < s) return 0;
+    const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(diff, 1);
+  };
+
+  const durationDays = useMemo(() => {
+    return calculateDays(startDate, endDate);
+  }, [startDate, endDate]);
+
+  // Step 1 Validation
+  const handleProceedToReview = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!selectedPupilId) {
+      setFormError("Please select a linked child.");
+      return;
+    }
+    if (!startDate) {
+      setFormError("Please select the absence start date.");
+      return;
+    }
+    if (!endDate) {
+      setFormError("Please select the absence end date.");
+      return;
+    }
+    if (endDate < startDate) {
+      setFormError("The absence end date cannot be earlier than the start date.");
+      return;
+    }
+    if (!reason) {
+      setFormError("Please select a reason category.");
+      return;
+    }
+    if (!notes.trim() || notes.trim().length < 8) {
+      setFormError(
+        "Please provide an explanatory message describing the reason for absence (minimum 8 characters)."
+      );
+      return;
+    }
+
+    setStep(2);
+  };
+
+  // Step 2 Submission to Data Service
+  const handleConfirmSubmit = async () => {
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      const newReport = await portalService.submitAbsenceReport({
+        pupilId: selectedPupilId,
+        parentId: data.parent.id,
+        startDate,
+        endDate,
+        reason,
+        notes: notes.trim(),
+        supportingDocName: supportingDocName || undefined,
+        supportingDocUrl: supportingDocName ? `/documents/absence/${supportingDocName}` : undefined,
+      });
+
+      setSubmittedReport(newReport);
+      setStep(3);
+      onRefreshData?.();
+      onNotify?.(
+        `Absence notice ${newReport.referenceNumber} recorded in local demonstration state.`
+      );
+    } catch {
+      setFormError("An unexpected error occurred while saving the absence notice. Please retry.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Reset form to start a new request
+  const handleResetForm = () => {
+    setStep(1);
+    setNotes("");
+    setSupportingDocName("");
+    setFormError(null);
+    setSubmittedReport(null);
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const def = d.toISOString().split("T")[0];
+    setStartDate(def);
+    setEndDate(def);
+  };
+
+  // Reason categories
+  const reasonOptions: { id: AbsenceReason; label: string; desc: string }[] = [
+    { id: "Illness", label: "Illness / Health", desc: "Fever, contagious illness, bed rest, or medical recovery" },
+    { id: "Medical Appointment", label: "Medical Appointment", desc: "Pediatric clinic, dentist, optometrist, hospital visit" },
+    { id: "Family Event", label: "Family Event", desc: "Milestone celebration, bereavement, or family occasion" },
+    { id: "Travel", label: "Travel / Relocation", desc: "Interstate or international travel, school visa visit" },
+    { id: "Other", label: "Other / Official Competition", desc: "Special sports trials, STEAM Olympiad, or school representation" },
+  ];
+
+  // Document templates for fast demo testing
+  const sampleDocuments = [
+    "Lagoon_Hospital_Medical_Certificate.pdf",
+    "Dentist_Appointment_Confirmation_Card.pdf",
+    "Official_Invitation_Letter.pdf",
+    "Pediatric_Doctor_Prescription_Slip.pdf",
+  ];
+
+  // Filtered History Reports
+  const filteredReports = useMemo(() => {
+    return data.absenceReports
+      .filter((rep) => {
+        if (historyPupilFilter !== "all" && rep.pupilId !== historyPupilFilter) {
+          return false;
+        }
+        if (historyStatusFilter !== "all" && rep.status !== historyStatusFilter) {
+          return false;
+        }
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const child = data.pupils.find((p) => p.id === rep.pupilId);
+          const matchRef = rep.referenceNumber?.toLowerCase().includes(q);
+          const matchId = rep.id.toLowerCase().includes(q);
+          const matchReason = rep.reason.toLowerCase().includes(q);
+          const matchNotes = rep.notes.toLowerCase().includes(q);
+          const matchChild = child?.fullName.toLowerCase().includes(q);
+          if (!matchRef && !matchId && !matchReason && !matchNotes && !matchChild) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  }, [data.absenceReports, historyPupilFilter, historyStatusFilter, searchQuery, data.pupils]);
+
+  // History status counts
+  const statusCounts = useMemo(() => {
+    const list =
+      historyPupilFilter === "all"
+        ? data.absenceReports
+        : data.absenceReports.filter((r) => r.pupilId === historyPupilFilter);
+
+    return {
+      all: list.length,
+      Submitted: list.filter((r) => r.status === "Submitted").length,
+      Reviewed: list.filter((r) => r.status === "Reviewed").length,
+      Approved: list.filter((r) => r.status === "Approved").length,
+      "More Information Required": list.filter(
+        (r) => r.status === "More Information Required"
+      ).length,
+    };
+  }, [data.absenceReports, historyPupilFilter]);
+
+  // Status badge styling helper
+  const renderStatusBadge = (status: AbsenceStatus) => {
+    switch (status) {
+      case "Approved":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-xs font-extrabold text-[#087A50] border border-[#087A50]/20">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Approved &bull; Excused on Register
+          </span>
+        );
+      case "Reviewed":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EFF6FF] px-2.5 py-0.5 text-xs font-extrabold text-[#1D4ED8] border border-[#1D4ED8]/20">
+            <Eye className="h-3.5 w-3.5" /> Reviewed &bull; Being Processed by Teacher
+          </span>
+        );
+      case "More Information Required":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF2F2] px-2.5 py-0.5 text-xs font-extrabold text-[#B91C1C] border border-[#B91C1C]/25">
+            <AlertTriangle className="h-3.5 w-3.5" /> Action Required &bull; More Information Required
+          </span>
+        );
+      case "Submitted":
+      case "Under Review":
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF9C3] px-2.5 py-0.5 text-xs font-extrabold text-[#854D0E] border border-[#854D0E]/20">
+            <Clock className="h-3.5 w-3.5" /> Submitted &bull; Pending Initial Review
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Demonstration Data & Local State Disclaimer Banner */}
+      <div className="rounded-xl border border-[#D97706]/30 bg-[#FFFBEB] p-4 text-xs text-[#92400E] shadow-xs">
+        <div className="flex items-start sm:items-center gap-2.5">
+          <Info className="h-4 w-4 text-[#D97706] shrink-0 mt-0.5 sm:mt-0" />
+          <span>
+            <strong>Demonstration Workflow Notice:</strong> Absence notices submitted in this Parent Portal update
+            local demonstration state and conform to Airtable-ready Absence Reports records. They have not been sent to the physical school office until a live backend is connected.
+          </span>
+        </div>
+      </div>
+
+      {/* Main Section Header */}
+      <section className="overflow-hidden rounded-2xl bg-[#29166F] text-white p-6 sm:p-8 shadow-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[#E9DB3D] px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wider text-[#29166F]">
+                Attendance Administration
+              </span>
+              <span className="text-xs text-white/70">
+                Airtable Schema Ready &bull; Session 2026/2027
+              </span>
+            </div>
+            <h2 className="mt-2 text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Requests &amp; Absence Notices
+            </h2>
+            <p className="mt-1.5 text-xs sm:text-sm text-white/75 max-w-2xl leading-relaxed">
+              Notify Marie Louise School in advance regarding planned medical appointments, family travel, or sudden illness. Official excused absence marks are recorded directly on the register.
+            </p>
+          </div>
+
+          {/* Quick Stats Pill */}
+          <div className="flex flex-wrap items-center gap-3 bg-[#1C0D4F] rounded-xl p-3 sm:p-4 border border-white/10 shrink-0">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-white/60">Total Notices</span>
+              <p className="text-xl font-extrabold text-white">{data.absenceReports.length}</p>
+            </div>
+            <div className="h-8 w-px bg-white/10" />
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#E9DB3D]">Approved</span>
+              <p className="text-xl font-extrabold text-[#E9DB3D]">
+                {data.absenceReports.filter((r) => r.status === "Approved").length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Section Navigation Tabs */}
+        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+          <button
+            onClick={() => setActiveTab("new-request")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition cursor-pointer ${
+              activeTab === "new-request"
+                ? "bg-white text-[#29166F] shadow-sm"
+                : "bg-white/10 text-white hover:bg-white/20"
+            }`}
+          >
+            <Plus className="h-4 w-4" />
+            <span>Report an Absence</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition cursor-pointer ${
+              activeTab === "history"
+                ? "bg-white text-[#29166F] shadow-sm"
+                : "bg-white/10 text-white hover:bg-white/20"
+            }`}
+          >
+            <FileCheck2 className="h-4 w-4" />
+            <span>Request History &amp; Status</span>
+            <span
+              className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "history" ? "bg-[#581C87] text-white" : "bg-white/25 text-white"
+              }`}
+            >
+              {data.absenceReports.length}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      {/* TAB 1: REPORT AN ABSENCE WORKFLOW */}
+      {activeTab === "new-request" && (
+        <div className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-8 shadow-xs space-y-6">
+          {/* Step Progress Bar */}
+          <div className="border-b border-[#EEE9F1] pb-6">
+            <div className="grid grid-cols-3 gap-2 text-center text-xs font-extrabold">
+              <div
+                className={`rounded-xl py-2 px-3 border transition ${
+                  step === 1
+                    ? "border-[#581C87] bg-[#F1ECF6] text-[#581C87]"
+                    : step > 1
+                    ? "border-[#E5F7ED] bg-[#E5F7ED] text-[#087A50]"
+                    : "border-[#E5DFE9] bg-[#FAF8FC] text-[#817887]"
+                }`}
+              >
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                  Step 1
+                </span>
+                <span>Absence Details</span>
+              </div>
+
+              <div
+                className={`rounded-xl py-2 px-3 border transition ${
+                  step === 2
+                    ? "border-[#581C87] bg-[#F1ECF6] text-[#581C87]"
+                    : step > 2
+                    ? "border-[#E5F7ED] bg-[#E5F7ED] text-[#087A50]"
+                    : "border-[#E5DFE9] bg-[#FAF8FC] text-[#817887]"
+                }`}
+              >
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                  Step 2
+                </span>
+                <span>Review &amp; Verify</span>
+              </div>
+
+              <div
+                className={`rounded-xl py-2 px-3 border transition ${
+                  step === 3
+                    ? "border-[#087A50] bg-[#E5F7ED] text-[#087A50]"
+                    : "border-[#E5DFE9] bg-[#FAF8FC] text-[#817887]"
+                }`}
+              >
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                  Step 3
+                </span>
+                <span>Confirmation</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Inline Error Alert */}
+          {formError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {/* STEP 1: FORM DETAILS */}
+          {step === 1 && (
+            <form onSubmit={handleProceedToReview} className="space-y-6">
+              {/* 1. Child Selector */}
+              <div className="space-y-2">
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                  1. Select Linked Child <span className="text-red-500">*</span>
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {data.pupils.map((child) => {
+                    const isSelected = selectedPupilId === child.id;
+                    return (
+                      <div
+                        key={child.id}
+                        onClick={() => setSelectedPupilId(child.id)}
+                        className={`flex items-center gap-3 rounded-xl border p-3.5 transition cursor-pointer ${
+                          isSelected
+                            ? "border-[#581C87] bg-[#F9F7FB] ring-2 ring-[#581C87]/15 shadow-xs"
+                            : "border-[#E5DFE9] bg-white hover:border-[#D1C7D8]"
+                        }`}
+                      >
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-extrabold text-xs text-white ${
+                            isSelected ? "bg-[#581C87]" : "bg-[#817887]"
+                          }`}
+                        >
+                          {child.avatarInitials}
+                        </div>
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-extrabold text-[#29166F] leading-snug">
+                            {child.fullName}
+                          </p>
+                          <p className="text-[11px] text-[#817887]">
+                            {child.class} &bull; {child.admissionNumber}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Date Pickers & Duration Indicator */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                    2. Absence Period <span className="text-red-500">*</span>
+                  </label>
+                  {durationDays > 0 ? (
+                    <span className="rounded-full bg-[#F1ECF6] px-2.5 py-0.5 text-[11px] font-extrabold text-[#581C87]">
+                      {durationDays === 1 ? "1 School Day" : `${durationDays} School Days`}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-extrabold text-red-600">
+                      Invalid date range
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="absence-start-date" className="block text-[11px] font-bold text-[#625B69] mb-1">
+                      Start Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="absence-start-date"
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      required
+                      className="h-11 w-full rounded-xl border border-[#DCD5E1] bg-white px-3 text-xs font-bold text-[#29166F] outline-none focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15 cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="absence-end-date" className="block text-[11px] font-bold text-[#625B69] mb-1">
+                      End Date (Expected Return) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="absence-end-date"
+                      type="date"
+                      value={endDate}
+                      min={startDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      required
+                      className="h-11 w-full rounded-xl border border-[#DCD5E1] bg-white px-3 text-xs font-bold text-[#29166F] outline-none focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {endDate < startDate && (
+                  <p className="text-[11px] font-bold text-red-600 flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3.5 w-3.5" /> End date cannot be earlier than start date.
+                  </p>
+                )}
+              </div>
+
+              {/* 3. Reason Category Selection */}
+              <div className="space-y-2">
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                  3. Reason Category <span className="text-red-500">*</span>
+                </label>
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {reasonOptions.map((opt) => {
+                    const isSelected = reason === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => setReason(opt.id)}
+                        className={`rounded-xl border p-3.5 transition cursor-pointer ${
+                          isSelected
+                            ? "border-[#581C87] bg-[#F1ECF6] ring-2 ring-[#581C87]/15 shadow-xs"
+                            : "border-[#E5DFE9] bg-white hover:border-[#D1C7D8]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#29166F]">{opt.label}</span>
+                          <div
+                            className={`flex h-4 w-4 rounded-full border items-center justify-center ${
+                              isSelected ? "border-[#581C87] bg-[#581C87]" : "border-[#C5BACD]"
+                            }`}
+                          >
+                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                          </div>
+                        </div>
+                        <p className="mt-1 text-[11px] text-[#817887] leading-relaxed">{opt.desc}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4. Explanatory Message */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="absence-notes" className="block text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                    4. Explanatory Message / Symptoms / Details <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-[#817887]">{notes.length} characters</span>
+                </div>
+                <textarea
+                  id="absence-notes"
+                  rows={4}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Please describe the illness symptoms, medical clinic name, or reason for travel so the lead teacher and school nurse can provide appropriate support..."
+                  required
+                  className="w-full rounded-xl border border-[#DCD5E1] bg-white p-3.5 text-xs text-[#29166F] placeholder-[#817887] outline-none focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15 leading-relaxed"
+                />
+              </div>
+
+              {/* 5. Optional Supporting Document Placeholder */}
+              <div className="space-y-2">
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                  5. Optional Supporting Document Placeholder
+                </label>
+                <div className="rounded-xl border border-dashed border-[#DCD5E1] bg-[#FAF8FC] p-4 text-xs">
+                  {supportingDocName ? (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-[#581C87]/25 bg-white p-3">
+                      <div className="flex items-center gap-2.5">
+                        <Paperclip className="h-4 w-4 text-[#581C87]" />
+                        <div>
+                          <p className="text-xs font-extrabold text-[#29166F]">{supportingDocName}</p>
+                          <p className="text-[10px] text-[#817887]">Ready for demonstration submission (248 KB)</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSupportingDocName("")}
+                        className="text-xs font-extrabold text-red-600 hover:underline cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 text-center">
+                      <Paperclip className="h-6 w-6 text-[#BBAFC4] mx-auto" />
+                      <div>
+                        <p className="text-xs font-bold text-[#29166F]">
+                          Attach Doctor&apos;s Note, Medical Certificate, or Travel Slip (Optional)
+                        </p>
+                        <p className="text-[11px] text-[#817887] mt-0.5">
+                          PDF, PNG, or JPEG up to 5MB. Click a sample below to attach instantly:
+                        </p>
+                      </div>
+
+                      {/* Quick demo presets */}
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        {sampleDocuments.map((doc) => (
+                          <button
+                            key={doc}
+                            type="button"
+                            onClick={() => setSupportingDocName(doc)}
+                            className="rounded-lg border border-[#E5DFE9] bg-white px-2.5 py-1 text-[11px] font-bold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+                          >
+                            + {doc.replace(".pdf", "")}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="submit"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#581C87] px-6 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-sm transition cursor-pointer"
+                >
+                  <span>Continue to Review</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* STEP 2: REVIEW & VERIFY */}
+          {step === 2 && (
+            <div className="space-y-6">
+              <div className="rounded-xl border border-[#D8C7E8] bg-[#FDFCFE] p-5 sm:p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EEE9F1] pb-3">
+                  <h3 className="text-base font-extrabold text-[#29166F]">
+                    Review Absence Notice Before Submission
+                  </h3>
+                  <span className="rounded-full bg-[#FEF9C3] px-2.5 py-0.5 text-xs font-bold text-[#854D0E]">
+                    Draft Review
+                  </span>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 text-xs">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-[#817887]">Pupil</span>
+                    <p className="text-sm font-extrabold text-[#29166F]">
+                      {activePupil?.fullName} ({activePupil?.class})
+                    </p>
+                    <p className="text-[11px] text-[#817887]">
+                      Admission: {activePupil?.admissionNumber} &bull; Teacher: {activePupil?.classTeacher}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-[#817887]">Absence Period</span>
+                    <p className="text-sm font-extrabold text-[#29166F]">
+                      {startDate} &mdash; {endDate}
+                    </p>
+                    <p className="text-[11px] font-bold text-[#581C87]">
+                      {durationDays} School Day{durationDays === 1 ? "" : "s"} Total
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-[#817887]">Reason Category</span>
+                    <p className="text-xs font-extrabold text-[#29166F] bg-[#F1ECF6] w-fit px-2.5 py-1 rounded-md">
+                      {reason}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-[#817887]">Supporting Document</span>
+                    <p className="text-xs text-[#625B69] flex items-center gap-1 font-semibold">
+                      <Paperclip className="h-3.5 w-3.5 text-[#581C87]" />
+                      {supportingDocName || "None provided"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-[#EEE9F1] pt-3 text-xs space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-[#817887]">Explanatory Message</span>
+                  <div className="rounded-lg bg-[#FAF8FC] border border-[#EFEBF2] p-3 text-xs text-[#342D3A] leading-relaxed">
+                    &ldquo;{notes}&rdquo;
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900 leading-snug">
+                  <strong>Local Sandbox Verification:</strong> Confirming this submission will generate an official Airtable-formatted Absence Report with status <strong>&ldquo;Submitted&rdquo;</strong> in your local demo history.
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  disabled={isSubmitting}
+                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-[#DCD5E1] bg-white px-5 text-xs font-extrabold text-[#625B69] hover:bg-[#F8F6FA] cursor-pointer"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span>Back to Edit</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmSubmit}
+                  disabled={isSubmitting}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#581C87] px-6 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-sm cursor-pointer disabled:opacity-60"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>Recording Notice...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>Confirm &amp; Submit Notice</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: CONFIRMATION */}
+          {step === 3 && submittedReport && (
+            <div className="rounded-2xl border border-[#087A50]/30 bg-[#F6FBF8] p-6 sm:p-8 text-center space-y-5">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#E5F7ED] text-[#087A50] mx-auto shadow-xs">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+
+              <div>
+                <span className="rounded-full bg-[#E5F7ED] px-3 py-0.5 text-xs font-extrabold text-[#087A50]">
+                  Notice Successfully Logged
+                </span>
+                <h3 className="mt-2 text-xl font-extrabold text-[#29166F]">
+                  Absence Notice Received
+                </h3>
+                <p className="mt-1 text-xs text-[#625B69] max-w-md mx-auto leading-relaxed">
+                  Your pupil absence notice has been recorded in the local portal demo service.
+                </p>
+              </div>
+
+              {/* Reference Number Box */}
+              <div className="rounded-xl border border-[#D8C7E8] bg-white p-5 max-w-md mx-auto shadow-xs space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                  Generated Tracking Reference
+                </span>
+                <p className="font-mono text-2xl font-extrabold text-[#581C87]">
+                  {submittedReport.referenceNumber}
+                </p>
+                <div className="flex items-center justify-center gap-2 text-[11px] text-[#817887]">
+                  <span>Airtable ID: <strong>{submittedReport.id}</strong></span>
+                  <span>&bull;</span>
+                  <span>Status: <strong>{submittedReport.status}</strong></span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("history");
+                    setStep(1);
+                  }}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#581C87] px-5 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-sm cursor-pointer"
+                >
+                  <FileCheck2 className="h-4 w-4" />
+                  <span>View in Request History</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetForm}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#DCD5E1] bg-white px-5 text-xs font-extrabold text-[#29166F] hover:bg-[#F8F6FA] cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Submit Another Absence Notice</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: REQUEST HISTORY & STATUS */}
+      {activeTab === "history" && (
+        <div className="space-y-5">
+          {/* Filter Bar */}
+          <div className="rounded-2xl border border-[#E5DFE9] bg-white p-5 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EEE9F1] pb-4">
+              <div>
+                <h3 className="text-base font-extrabold text-[#29166F]">
+                  Absence Notice History &amp; Workflow Status
+                </h3>
+                <p className="text-xs text-[#817887] mt-0.5">
+                  Track administrative review endorsements and teacher remarks for all reported pupil absences.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setActiveTab("new-request");
+                  setStep(1);
+                }}
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#581C87] px-3.5 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-xs cursor-pointer shrink-0"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>New Absence Notice</span>
+              </button>
+            </div>
+
+            {/* Status Filter Chips */}
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { id: "all", label: "All Notices", count: statusCounts.all },
+                  { id: "Submitted", label: "Submitted", count: statusCounts.Submitted },
+                  { id: "Reviewed", label: "Reviewed", count: statusCounts.Reviewed },
+                  { id: "Approved", label: "Approved", count: statusCounts.Approved },
+                  {
+                    id: "More Information Required",
+                    label: "More Info Required",
+                    count: statusCounts["More Information Required"],
+                  },
+                ] as const
+              ).map((chip) => {
+                const isActive = historyStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    onClick={() => setHistoryStatusFilter(chip.id as any)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                      isActive
+                        ? "bg-[#581C87] text-white shadow-xs"
+                        : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+                    }`}
+                  >
+                    <span>{chip.label}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                        isActive ? "bg-white/25 text-white" : "bg-[#F1ECF6] text-[#581C87]"
+                      }`}
+                    >
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Child Selector & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-2">
+                <label htmlFor="history-child-filter" className="text-xs font-bold text-[#625B69] whitespace-nowrap">
+                  Filter by Child:
+                </label>
+                <select
+                  id="history-child-filter"
+                  value={historyPupilFilter}
+                  onChange={(e) => setHistoryPupilFilter(e.target.value)}
+                  className="h-9 rounded-lg border border-[#DCD5E1] bg-white px-2.5 text-xs font-bold text-[#29166F] outline-none cursor-pointer"
+                >
+                  <option value="all">All Linked Children ({data.pupils.length})</option>
+                  {data.pupils.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName} ({p.class})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative flex-1 sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#817887]" />
+                <input
+                  type="text"
+                  placeholder="Search reference, reason, or pupil..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-[#DCD5E1] bg-white pl-8 pr-3 text-xs outline-none focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* History Cards List */}
+          {filteredReports.length > 0 ? (
+            <div className="space-y-4">
+              {filteredReports.map((report) => {
+                const child = data.pupils.find((p) => p.id === report.pupilId);
+                const days = calculateDays(report.startDate, report.endDate);
+
+                return (
+                  <article
+                    key={report.id}
+                    className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs transition hover:border-[#581C87]/30 hover:shadow-sm space-y-4"
+                  >
+                    {/* Top Row: Reference, Pupil, Status */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEE9F1] pb-3.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-extrabold text-[#581C87] bg-[#F1ECF6] px-2.5 py-0.5 rounded-md">
+                          {report.referenceNumber || report.id}
+                        </span>
+                        {child && (
+                          <span className="text-xs bg-[#E8E2ED] text-[#29166F] font-bold px-2 py-0.5 rounded-md">
+                            {child.fullName} ({child.class})
+                          </span>
+                        )}
+                        <span className="rounded bg-[#F8F6FA] text-[#625B69] font-extrabold text-[10px] px-2 py-0.5">
+                          {report.reason}
+                        </span>
+                      </div>
+
+                      <div>{renderStatusBadge(report.status)}</div>
+                    </div>
+
+                    {/* Dates & Duration Banner */}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs bg-[#FAF8FC] p-3.5 rounded-xl border border-[#EEE9F1]">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-[#817887]">Absence Dates</span>
+                        <p className="text-xs font-extrabold text-[#29166F] mt-0.5">
+                          {report.startDate} &mdash; {report.endDate}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-[#817887]">Estimated Duration</span>
+                        <p className="text-xs font-extrabold text-[#581C87] mt-0.5">
+                          {days} School Day{days === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-[#817887]">Submitted On</span>
+                        <p className="text-xs text-[#625B69] mt-0.5">
+                          {new Date(report.submittedAt).toLocaleDateString("en-NG", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Explanatory Message */}
+                    <div className="space-y-1 text-xs">
+                      <span className="text-[10px] font-bold uppercase text-[#817887]">Explanatory Note</span>
+                      <p className="text-xs text-[#342D3A] leading-relaxed bg-white border border-[#EEE9F1] p-3 rounded-lg">
+                        {report.notes}
+                      </p>
+                    </div>
+
+                    {/* Attached Supporting Document */}
+                    {report.supportingDocName && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-[10px] font-bold uppercase text-[#817887]">Attachment:</span>
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-[#F1ECF6] px-2.5 py-1 text-xs font-bold text-[#581C87]">
+                          <Paperclip className="h-3.5 w-3.5" />
+                          {report.supportingDocName}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* School Review Feedback Box */}
+                    {report.acknowledgementNote && (
+                      <div
+                        className={`rounded-xl p-3.5 text-xs space-y-1 border ${
+                          report.status === "Approved"
+                            ? "bg-[#F4FAF6] border-[#A7F3D0] text-[#065F46]"
+                            : report.status === "More Information Required"
+                            ? "bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]"
+                            : "bg-[#F0F7FF] border-[#BAE6FD] text-[#075985]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-extrabold text-[11px]">
+                          <span>
+                            School Review Remarks &bull; {report.reviewedBy || "Administration Desk"}
+                          </span>
+                          {report.reviewedAt && (
+                            <span className="text-[10px] opacity-75">
+                              {new Date(report.reviewedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs leading-relaxed">{report.acknowledgementNote}</p>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-[#E5DFE9] bg-white p-12 text-center shadow-xs space-y-3">
+              <FileCheck2 className="h-10 w-10 text-[#BBAFC4] mx-auto" />
+              <h3 className="text-base font-extrabold text-[#29166F]">No Absence Notices Found</h3>
+              <p className="text-xs text-[#817887] max-w-sm mx-auto">
+                No absence records match the current status filter &ldquo;{historyStatusFilter}&rdquo;
+                {historyPupilFilter !== "all" && " for the selected child"}.
+              </p>
+              <button
+                onClick={() => {
+                  setHistoryStatusFilter("all");
+                  setHistoryPupilFilter("all");
+                  setSearchQuery("");
+                }}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 py-2 text-xs font-bold text-[#581C87] hover:bg-[#F1ECF6] cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset Filters
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 /**
  * 6. Notices View
