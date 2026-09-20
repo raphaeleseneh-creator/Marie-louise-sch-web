@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ArrowRight, Menu, ShieldCheck, X } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
-import { Menu, X, ArrowRight, ShieldCheck } from "lucide-react";
 import type { NavTab } from "../../types";
 
 interface HeaderProps {
@@ -10,6 +11,15 @@ interface HeaderProps {
   onOpenParentPortal: () => void;
 }
 
+const navLinks: { label: string; tab: NavTab }[] = [
+  { label: "Home", tab: "home" },
+  { label: "About", tab: "about" },
+  { label: "Academics", tab: "academics" },
+  { label: "Admissions", tab: "admissions" },
+  { label: "News & Events", tab: "news-events" },
+  { label: "Contact", tab: "contact" },
+];
+
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onNavigate,
@@ -18,23 +28,23 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 24);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 24);
+    handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const navLinks: { label: string; tab: NavTab }[] = [
-    { label: "Home", tab: "home" },
-    { label: "About", tab: "about" },
-    { label: "Academics", tab: "academics" },
-    { label: "Admissions", tab: "admissions" },
-    { label: "News & Events", tab: "news-events" },
-    { label: "Contact", tab: "contact" },
-  ];
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileMenuOpen]);
 
   const handleNavClick = (tab: NavTab) => {
     setIsMobileMenuOpen(false);
@@ -44,156 +54,175 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
+        className={`fixed top-0 z-40 bg-white/95 transition-[padding,box-shadow,background-color] duration-300 ${
           isScrolled
-            ? "bg-white/95 backdrop-blur-md shadow-[0_2px_12px_rgba(41,22,111,0.06)] border-b border-[#E8E2ED]/80 py-3"
-            : "bg-white border-b border-[#E8E2ED]/50 py-4.5"
+            ? "py-2 shadow-[0_10px_35px_rgba(41,22,111,0.08)] backdrop-blur-xl"
+            : "py-3.5"
         }`}
+        style={{ left: 0, right: 0 }}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          {/* Brand Logo */}
-          <SchoolLogo
-            variant="light"
-            onClick={() => handleNavClick("home")}
-          />
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 sm:px-6 lg:px-8">
+          <SchoolLogo variant="light" onClick={() => handleNavClick("home")} />
 
-          {/* Desktop Navigation */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
+          <nav
+            className="hidden items-center gap-0.5 rounded-xl border border-[#E8E2ED] bg-[#F7F4FA]/70 p-1 lg:flex"
+            aria-label="Primary navigation"
+          >
             {navLinks.map((link) => {
               const isActive = activeTab === link.tab;
               return (
                 <button
                   key={link.tab}
                   onClick={() => handleNavClick(link.tab)}
-                  className={`relative px-3.5 py-2 text-[14px] font-medium transition-colors cursor-pointer rounded-md ${
+                  className={`group relative min-h-9 px-3.5 text-[13px] font-semibold transition-colors xl:px-4 ${
                     isActive
-                      ? "text-[#581C87] font-semibold"
-                      : "text-[#27232D] hover:text-[#581C87] hover:bg-[#F7F4FA]"
+                      ? "text-[#29166F]"
+                      : "text-[#4C4652] hover:text-[#581C87]"
                   }`}
+                  aria-current={isActive ? "page" : undefined}
                 >
-                  {link.label}
-                  {isActive && (
-                    <span className="absolute bottom-0 left-3.5 right-3.5 h-[2px] bg-[#581C87] rounded-full" />
-                  )}
+                  <span className="relative z-10">{link.label}</span>
+                  {isActive ? (
+                    <motion.span
+                      layoutId="active-navigation"
+                      className="absolute inset-0 rounded-lg border border-[#DED4E8] bg-white shadow-[0_2px_8px_rgba(41,22,111,0.08)]"
+                      transition={
+                        reduceMotion
+                          ? { duration: 0 }
+                          : { type: "spring", stiffness: 430, damping: 34 }
+                      }
+                    />
+                  ) : null}
+                  <span className="absolute bottom-1 left-1/2 h-0.5 w-0 -translate-x-1/2 rounded-full bg-[#E9DB3D] transition-all duration-200 hover:w-5 group-hover:w-5" />
                 </button>
               );
             })}
           </nav>
 
-          {/* Action CTAs */}
-          <div className="hidden md:flex items-center gap-3">
-            {/* Parent Portal */}
+          <div className="hidden items-center gap-2.5 md:flex">
             <button
               onClick={onOpenParentPortal}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-[#29166F] bg-[#F7F4FA] hover:bg-[#EDE8F5] border border-[#E8E2ED] rounded-lg transition-all cursor-pointer group"
+              className="group inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#DED4E8] bg-white px-3.5 text-[13px] font-bold text-[#29166F] transition-all hover:border-[#BFAFD1] hover:bg-[#F7F4FA] active:scale-[0.98]"
               title="Parent Portal access"
             >
-              <ShieldCheck className="w-4 h-4 text-[#581C87] transition-transform group-hover:scale-105" />
+              <ShieldCheck className="h-4 w-4 text-[#581C87] transition-transform group-hover:scale-110" />
               <span>Parent Portal</span>
             </button>
 
-            {/* Apply Now */}
             <button
               onClick={onOpenAdmissions}
-              className="inline-flex items-center gap-2 px-4.5 py-2 text-[13px] font-semibold text-white bg-[#581C87] hover:bg-[#29166F] rounded-lg shadow-xs transition-all cursor-pointer group active:scale-[0.98]"
+              className="group inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#E9DB3D] px-4 text-[13px] font-extrabold text-[#29166F] shadow-[0_6px_18px_rgba(88,28,135,0.12)] transition-all hover:-translate-y-0.5 hover:bg-[#F3E44C] hover:shadow-[0_10px_24px_rgba(88,28,135,0.18)] active:translate-y-0 active:scale-[0.98]"
             >
               <span>Apply Now</span>
-              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </button>
           </div>
 
-          {/* Mobile Menu Trigger */}
-          <div className="flex md:hidden items-center gap-2">
+          <div className="flex items-center gap-2 md:hidden">
             <button
               onClick={onOpenParentPortal}
-              className="p-2 text-[#29166F] bg-[#F7F4FA] border border-[#E8E2ED] rounded-md text-xs font-semibold flex items-center gap-1"
-              aria-label="Parent Portal"
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[#DED4E8] bg-[#F7F4FA] px-3 text-[11px] font-bold text-[#29166F]"
+              aria-label="Open Parent Portal"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-[#581C87]" />
-              <span className="text-[11px]">Portal</span>
+              <ShieldCheck className="h-3.5 w-3.5 text-[#581C87]" />
+              <span>Portal</span>
             </button>
-
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2.5 text-[#27232D] hover:text-[#581C87] rounded-md hover:bg-[#F7F4FA] transition-colors"
+              onClick={() => setIsMobileMenuOpen((open) => !open)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-[#29166F] transition-colors hover:bg-[#F7F4FA]"
               aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={isMobileMenuOpen}
             >
-              {isMobileMenuOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </button>
           </div>
         </div>
+
+        <div className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent_3%,#581C87_38%,#E9DB3D_64%,transparent_97%)] opacity-45" />
       </header>
 
-      {/* Mobile Drawer */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-xs md:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        >
-          <div
-            className="fixed top-[69px] left-0 right-0 bg-white border-b border-[#E8E2ED] shadow-xl p-6 transition-transform animate-in slide-in-from-top duration-200"
-            onClick={(e) => e.stopPropagation()}
+      <AnimatePresence>
+        {isMobileMenuOpen ? (
+          <motion.div
+            className="fixed inset-0 z-30 bg-[#160b35]/45 backdrop-blur-sm md:hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.2 }}
+            onClick={() => setIsMobileMenuOpen(false)}
           >
-            <div className="flex flex-col gap-2">
-              <div className="text-[11px] font-bold text-[#625B69] uppercase tracking-wider px-3 py-1">
-                Navigation
+            <motion.aside
+              className="absolute bottom-0 right-0 flex flex-col bg-white px-5 pb-6 pt-7 shadow-[-18px_0_60px_rgba(28,12,66,0.18)]"
+              style={{ top: 72, width: "min(88vw, 390px)" }}
+              initial={reduceMotion ? false : { x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 36 }}
+              onClick={(event) => event.stopPropagation()}
+              aria-label="Mobile navigation"
+            >
+              <div className="mb-4 flex items-center justify-between border-b border-[#E8E2ED] pb-4">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#625B69]">
+                  Explore the school
+                </p>
+                <span className="h-2 w-2 rounded-full bg-[#E9DB3D]" />
               </div>
-              {navLinks.map((link) => {
-                const isActive = activeTab === link.tab;
-                return (
-                  <button
-                    key={link.tab}
-                    onClick={() => handleNavClick(link.tab)}
-                    className={`flex items-center justify-between w-full px-4 py-3 text-base rounded-lg text-left transition-colors ${
-                      isActive
-                        ? "bg-[#F7F4FA] text-[#581C87] font-bold"
-                        : "text-[#27232D] hover:bg-[#F7F4FA] font-medium"
-                    }`}
-                  >
-                    <span>{link.label}</span>
-                    {isActive && (
-                      <span className="w-2 h-2 rounded-full bg-[#581C87]" />
-                    )}
-                  </button>
-                );
-              })}
 
-              <div className="pt-4 mt-2 border-t border-[#E8E2ED] flex flex-col gap-3">
-                <button
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    onOpenParentPortal();
-                  }}
-                  className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg bg-[#F7F4FA] border border-[#E8E2ED] text-[#29166F] font-semibold text-sm"
-                >
-                  <ShieldCheck className="w-4 h-4 text-[#581C87]" />
-                  <span>Access Parent Portal</span>
-                </button>
+              <nav className="flex flex-col" aria-label="Mobile primary navigation">
+                {navLinks.map((link, index) => {
+                  const isActive = activeTab === link.tab;
+                  return (
+                    <button
+                      key={link.tab}
+                      onClick={() => handleNavClick(link.tab)}
+                      className={`group flex min-h-14 items-center justify-between border-b border-[#E8E2ED] text-left transition-colors ${
+                        isActive ? "text-[#581C87]" : "text-[#27232D] hover:text-[#581C87]"
+                      }`}
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      <span className="flex items-center gap-4">
+                        <span className="w-5 text-[10px] font-bold text-[#9A929F]">0{index + 1}</span>
+                        <span className="text-lg font-bold">{link.label}</span>
+                      </span>
+                      <ArrowRight
+                        className={`h-4 w-4 transition-transform group-hover:translate-x-1 ${
+                          isActive ? "text-[#E0CA1D]" : "text-[#B9B1BD]"
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </nav>
 
+              <div className="mt-auto space-y-3 pt-6">
                 <button
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     onOpenAdmissions();
                   }}
-                  className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg bg-[#581C87] text-white font-semibold text-sm shadow-xs"
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#E9DB3D] px-5 text-sm font-extrabold text-[#29166F] active:scale-[0.98]"
                 >
-                  <span>Start Admission Application</span>
-                  <ArrowRight className="w-4 h-4" />
+                  Start an Application
+                  <ArrowRight className="h-4 w-4" />
                 </button>
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onOpenParentPortal();
+                  }}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-[#DED4E8] px-5 text-sm font-bold text-[#29166F] active:scale-[0.98]"
+                >
+                  <ShieldCheck className="h-4 w-4 text-[#581C87]" />
+                  Parent Portal
+                </button>
+                <p className="pt-2 text-center text-[11px] font-semibold text-[#77707C]">
+                  Surulere, Lagos &middot; Be Truthful
+                </p>
               </div>
-
-              <div className="mt-4 pt-3 text-center text-xs text-[#625B69]">
-                <p className="font-medium text-[#29166F]">Marie Louise School</p>
-                <p>Surulere, Lagos • &ldquo;Be Truthful&rdquo;</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </>
   );
 };
