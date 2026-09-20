@@ -1,72 +1,34 @@
 import React from "react";
 import { schoolConfig } from "../../data/school";
-import { Compass, BookOpen, Shield, Award } from "lucide-react";
+
+const identityPoints = [
+  ["Academic journey", "Nursery to Primary 6"],
+  ["Our home", schoolConfig.location],
+  ["Our promise", `\u201c${schoolConfig.motto}\u201d`],
+  ["Whole-child focus", "Learning, character, confidence"],
+];
 
 export const TrustStrip: React.FC = () => {
   return (
-    <section className="border-y border-[#E8E2ED] bg-[#F7F4FA]/70 py-6 sm:py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 items-center divide-y md:divide-y-0 md:divide-x divide-[#E8E2ED]/80">
-          {/* Item 1: Scope */}
-          <div className="flex items-center gap-3.5 pt-4 md:pt-0 first:pt-0">
-            <div className="w-10 h-10 rounded-lg bg-white border border-[#E8E2ED] flex items-center justify-center flex-shrink-0 text-[#581C87] shadow-2xs">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#625B69]">
-                Academic Structure
-              </p>
-              <p className="text-sm sm:text-[15px] font-bold text-[#29166F]">
-                Nursery to Primary 6
-              </p>
-            </div>
+    <section className="bg-[#29166F] text-white" aria-label="School identity">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 px-5 sm:px-8 lg:grid-cols-4 lg:px-10">
+        {identityPoints.map(([label, value], index) => (
+          <div
+            key={label}
+            className={`py-6 sm:py-7 lg:px-7 ${
+              index % 2 === 1 ? "border-l border-white/15 pl-5" : "pr-5"
+            } ${index > 1 ? "border-t border-white/15 lg:border-t-0" : ""} ${
+              index > 0 ? "lg:border-l lg:border-white/15" : "lg:pl-0"
+            }`}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#E9DB3D]">
+              {label}
+            </p>
+            <p className="mt-1.5 text-sm font-bold leading-snug text-white sm:text-[15px]">
+              {value}
+            </p>
           </div>
-
-          {/* Item 2: Location */}
-          <div className="flex items-center gap-3.5 pt-4 md:pt-0 md:pl-8">
-            <div className="w-10 h-10 rounded-lg bg-white border border-[#E8E2ED] flex items-center justify-center flex-shrink-0 text-[#581C87] shadow-2xs">
-              <Compass className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#625B69]">
-                Location
-              </p>
-              <p className="text-sm sm:text-[15px] font-bold text-[#29166F]">
-                {schoolConfig.location}
-              </p>
-            </div>
-          </div>
-
-          {/* Item 3: School Motto */}
-          <div className="flex items-center gap-3.5 pt-4 md:pt-0 md:pl-8">
-            <div className="w-10 h-10 rounded-lg bg-white border border-[#E8E2ED] flex items-center justify-center flex-shrink-0 text-[#581C87] shadow-2xs">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#625B69]">
-                School Motto
-              </p>
-              <p className="text-sm sm:text-[15px] font-bold text-[#29166F]">
-                &ldquo;{schoolConfig.motto}&rdquo;
-              </p>
-            </div>
-          </div>
-
-          {/* Item 4: Educational Focus */}
-          <div className="flex items-center gap-3.5 pt-4 md:pt-0 md:pl-8">
-            <div className="w-10 h-10 rounded-lg bg-white border border-[#E8E2ED] flex items-center justify-center flex-shrink-0 text-[#581C87] shadow-2xs">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#625B69]">
-                Core Focus
-              </p>
-              <p className="text-sm sm:text-[15px] font-bold text-[#29166F]">
-                Early Years &amp; Primary
-              </p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
     </section>
   );
