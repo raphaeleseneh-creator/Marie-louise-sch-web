@@ -44,9 +44,10 @@ export const SchoolIntroduction: React.FC = () => {
           <div className="lg:col-span-6 relative">
             <div className="relative rounded-2xl overflow-hidden shadow-[0_16px_44px_rgba(41,22,111,0.08)] border border-[#E8E2ED]">
               <img
-                src="https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=1200&q=80"
-                alt="Teacher guiding pupils with attentive warmth at Marie Louise School"
+                src="/images/school/outdoor-learning-circle.jpg"
+                alt="Marie Louise School teacher guiding pupils during an outdoor reading lesson"
                 className="w-full h-[380px] sm:h-[460px] object-cover object-center"
+                loading="lazy"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/80 via-transparent to-transparent" />
               <div className="absolute bottom-6 left-6 right-6 text-white">

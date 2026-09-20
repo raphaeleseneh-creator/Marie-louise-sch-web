@@ -11,9 +11,10 @@ export const LeadershipWelcome: React.FC = () => {
           <div className="lg:col-span-5 relative">
             <div className="relative rounded-3xl overflow-hidden shadow-[0_16px_40px_rgba(41,22,111,0.09)] border border-white">
               <img
-                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=900&q=80"
-                alt="Head of School welcoming parents and pupils"
-                className="w-full h-[420px] sm:h-[480px] object-cover object-top"
+                src="/images/school/outdoor-learning-circle.jpg"
+                alt="Marie Louise School teacher leading an outdoor learning circle"
+                className="w-full h-[420px] sm:h-[480px] object-cover object-center"
+                loading="lazy"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/80 via-transparent to-transparent" />
               <div className="absolute bottom-5 left-5 right-5 text-white">

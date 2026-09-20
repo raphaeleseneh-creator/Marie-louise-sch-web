@@ -165,6 +165,7 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
                     const isSelected = selectedClass === cls;
                     return (
                       <button
+                        key={cls}
                         type="button"
                         onClick={() => setSelectedClass(cls)}
                         className={`py-3 px-3 rounded-xl text-left text-xs sm:text-sm font-semibold transition-all border cursor-pointer flex items-center justify-between ${

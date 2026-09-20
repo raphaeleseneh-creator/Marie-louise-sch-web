@@ -101,8 +101,8 @@ export const Hero: React.FC<HeroProps> = ({
               {/* Dominant Photograph (Primary classroom engagement) */}
               <div className="absolute top-0 right-0 w-[80%] sm:w-[76%] h-[78%] sm:h-[82%] rounded-2xl overflow-hidden shadow-[0_12px_36px_rgba(41,22,111,0.09)] border border-white">
                 <img
-                  src="https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=1200&q=85"
-                  alt="Young primary pupils engaged in interactive classroom learning at Marie Louise School"
+                  src="/images/school/early-years-classroom.jpg"
+                  alt="Marie Louise School early years pupils learning together in their classroom"
                   className="w-full h-full object-cover object-center transition-transform duration-700 hover:scale-105"
                   loading="eager"
                 />
@@ -117,8 +117,8 @@ export const Hero: React.FC<HeroProps> = ({
               {/* Overlapping Secondary Vertical Image (Early years reading / book moment) */}
               <div className="absolute bottom-2 left-2 sm:left-0 w-[46%] sm:w-[42%] h-[60%] sm:h-[65%] rounded-2xl overflow-hidden shadow-[0_16px_40px_rgba(41,22,111,0.14)] border-4 border-white z-20">
                 <img
-                  src="https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=800&q=85"
-                  alt="Pupil deeply engrossed in reading books"
+                  src="/images/school/outdoor-learning-circle.jpg"
+                  alt="Marie Louise School pupils reading together with their teacher outdoors"
                   className="w-full h-full object-cover object-center transition-transform duration-700 hover:scale-105"
                 />
                 <div className="absolute top-3 left-3">
@@ -131,13 +131,13 @@ export const Hero: React.FC<HeroProps> = ({
               {/* Small Floating Detail Crop (Hands/creative art discovery) */}
               <div className="absolute -bottom-3 right-8 sm:right-16 w-32 sm:w-40 h-24 sm:h-28 rounded-xl overflow-hidden shadow-[0_8px_24px_rgba(41,22,111,0.12)] border-2 border-white z-30 hidden sm:block">
                 <img
-                  src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=500&q=80"
-                  alt="Hands creating art and expressing creativity"
+                  src="/images/school/martial-arts-activity.jpg"
+                  alt="Marie Louise School pupils taking part in martial arts activities"
                   className="w-full h-full object-cover object-center"
                 />
                 <div className="absolute inset-0 bg-[#581C87]/15" />
                 <div className="absolute bottom-1.5 right-1.5 bg-white/95 px-1.5 py-0.5 rounded-xs text-[9px] font-semibold text-[#581C87]">
-                  Creative Hands
+                  Active Learners
                 </div>
               </div>
 

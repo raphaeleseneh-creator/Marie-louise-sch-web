@@ -92,6 +92,7 @@ export const LearningExperience: React.FC = () => {
                 src={activeExperience.image}
                 alt={activeExperience.name}
                 className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
+                loading="lazy"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/70 via-transparent to-transparent" />
               <div className="absolute bottom-3 left-3 text-white">
@@ -105,9 +106,10 @@ export const LearningExperience: React.FC = () => {
             {/* Secondary complementary photo */}
             <div className="relative rounded-2xl overflow-hidden shadow-sm h-64 sm:h-80 border border-white hidden sm:block">
               <img
-                src="https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=800&q=80"
-                alt="Pupil engaged with teacher in learning"
+                src="/images/school/outdoor-learning-circle.jpg"
+                alt="Marie Louise School teacher supporting pupils during a group lesson"
                 className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
+                loading="lazy"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/70 via-transparent to-transparent" />
               <div className="absolute bottom-3 left-3 text-white">

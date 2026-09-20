@@ -121,6 +121,14 @@ export interface DevelopmentPillar {
   image: string;
 }
 
+export const SCHOOL_IMAGES = {
+  earlyYears: "/images/school/early-years-classroom.jpg",
+  outdoorLearning: "/images/school/outdoor-learning-circle.jpg",
+  martialArts: "/images/school/martial-arts-activity.jpg",
+  primaryStudy: "/images/school/primary-classroom-study.jpg",
+  concert: "/images/school/concert-performance.jpg",
+} as const;
+
 export const DEVELOPMENT_PILLARS: DevelopmentPillar[] = [
   {
     pillar: "CONFIDENT",
@@ -128,7 +136,7 @@ export const DEVELOPMENT_PILLARS: DevelopmentPillar[] = [
     statement: "Children at Marie Louise learn to stand tall, share their ideas with poise, and welcome challenges as opportunities for growth.",
     quote: "A confident child approaches every new concept not with anxiety, but with eager anticipation.",
     tag: "Oratory & Self-Expression",
-    image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=1200&q=80"
+    image: SCHOOL_IMAGES.concert
   },
   {
     pillar: "CURIOUS",
@@ -136,7 +144,7 @@ export const DEVELOPMENT_PILLARS: DevelopmentPillar[] = [
     statement: "We nurture the instinct to inquire, probe, investigate, and discover why things work—from living plants to numbers.",
     quote: "Curiosity is the engine of intellectual endurance.",
     tag: "Inquiry & Discovery",
-    image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=1200&q=80"
+    image: SCHOOL_IMAGES.outdoorLearning
   },
   {
     pillar: "COMPASSIONATE",
@@ -144,7 +152,7 @@ export const DEVELOPMENT_PILLARS: DevelopmentPillar[] = [
     statement: "Grounded in our motto 'Be Truthful', our pupils learn to honor others, practice empathy, and be dependable friends.",
     quote: "Integrity and kindness form the bedrock of enduring leadership.",
     tag: "Character & Community",
-    image: "https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=1200&q=80"
+    image: SCHOOL_IMAGES.earlyYears
   },
   {
     pillar: "CAPABLE",
@@ -152,7 +160,7 @@ export const DEVELOPMENT_PILLARS: DevelopmentPillar[] = [
     statement: "From foundational phonics and mental arithmetic to digital fluency and analytical reasoning, our pupils master essential life skills.",
     quote: "True capability comes from steady, supported daily practice.",
     tag: "Foundational Mastery",
-    image: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=1200&q=80"
+    image: SCHOOL_IMAGES.primaryStudy
   }
 ];
 
@@ -172,7 +180,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Core Foundations",
     focus: "Synthetic Phonics, Guided Reading & Creative Writing",
     description: "Instilling an enduring love of books, strong phonetic decoding, vocabulary enrichment, and articulate written expression from Early Years onward.",
-    image: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.earlyYears
   },
   {
     id: "numeracy",
@@ -180,7 +188,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Analytical Thinking",
     focus: "Concrete-Pictorial-Abstract Mathematics",
     description: "Building strong number sense, spatial awareness, mental maths agility, and practical problem-solving using tactile manipulatives.",
-    image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.primaryStudy
   },
   {
     id: "science",
@@ -188,7 +196,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Inquiry",
     focus: "Hands-on Experiments & Observation",
     description: "Cultivating young scientists who observe nature, test hypotheses, record findings, and marvel at the natural world.",
-    image: "https://images.unsplash.com/photo-1581093458791-9f3c3900df4b?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.outdoorLearning
   },
   {
     id: "creative-arts",
@@ -196,7 +204,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Expression",
     focus: "Painting, Craft & Visual Aesthetics",
     description: "Fostering visual creativity, colour theory, texture experimentation, and fine motor dexterity through diverse artistic media.",
-    image: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.concert
   },
   {
     id: "digital",
@@ -204,7 +212,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Modern Skills",
     focus: "Age-Appropriate Digital Literacy & Computational Logic",
     description: "Introducing safe, interactive technology that transforms children from passive consumers into creative, confident digital learners.",
-    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.primaryStudy
   },
   {
     id: "physical",
@@ -212,7 +220,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Health & Vitality",
     focus: "Agility, Teamwork & Motor Coordination",
     description: "Daily structured movement, team games, balance exercises, and playground sports that foster physical stamina and sportsmanship.",
-    image: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.martialArts
   },
   {
     id: "character",
@@ -220,7 +228,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Values",
     focus: "'Be Truthful', Responsibility & Courtesy",
     description: "Daily reflections, polite manners, accountability, leadership opportunities, and community stewardship woven into school routines.",
-    image: "https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.earlyYears
   },
   {
     id: "collaborative",
@@ -228,7 +236,7 @@ export const LEARNING_EXPERIENCES: LearningExperienceItem[] = [
     category: "Social Growth",
     focus: "Group Projects & Peer Discourse",
     description: "Teaching children to negotiate roles, listen empathetically, share credit, and solve multifaceted challenges as a unified team.",
-    image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=900&q=80"
+    image: SCHOOL_IMAGES.outdoorLearning
   }
 ];
 
@@ -244,21 +252,21 @@ export interface SchoolStory {
 
 export const SCHOOL_STORIES: SchoolStory[] = [
   {
-    id: "literacy-week-discovery",
-    category: "Academics",
-    date: "Term Reflection",
-    headline: "Fostering Deep Readers: How Early Phonics Sparks a Lifelong Love for Books",
-    excerpt: "A look inside our Transition and Nursery reading corners, where structured phonetic discovery and bedtime storytelling come together in purposeful synergy.",
-    image: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=1200&q=80",
+    id: "end-of-year-concert",
+    category: "Celebration",
+    date: "School Showcase",
+    headline: "End of Year Concert: Confidence and Creativity Take Centre Stage",
+    excerpt: "Music, drama and dance give every pupil a chance to perform with confidence, celebrate progress and share their creativity with our school community.",
+    image: SCHOOL_IMAGES.concert,
     featured: true
   },
   {
-    id: "science-stem-exhibition",
+    id: "outdoor-learning",
     category: "School Life",
     date: "Campus Spotlight",
-    headline: "Young Inquirers: Primary Pupils Showcase Practical Science and Plant Studies",
-    excerpt: "Primary 3 through 6 pupils presented hands-on experiments demonstrating germination, buoyancy, and clean energy principles to peers and teachers.",
-    image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=800&q=80",
+    headline: "Learning in the Open: Reading, Reflection and Shared Discovery",
+    excerpt: "Our outdoor learning circle gives pupils space to read together, exchange ideas and build confidence through attentive teacher guidance.",
+    image: SCHOOL_IMAGES.outdoorLearning,
     featured: false
   },
   {
@@ -267,7 +275,7 @@ export const SCHOOL_STORIES: SchoolStory[] = [
     date: "Values & Traditions",
     headline: "Living Our Motto 'Be Truthful': Everyday Integrity in Action",
     excerpt: "Honouring pupils across both Early Years and Primary who demonstrated exceptional honesty, quiet helpfulness, and peer encouragement this term.",
-    image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=800&q=80",
+    image: SCHOOL_IMAGES.earlyYears,
     featured: false
   }
 ];
@@ -285,42 +293,42 @@ export const SCHOOL_LIFE_MOMENTS: SchoolLifeMoment[] = [
     title: "Classroom Concentration",
     category: "Academic Life",
     caption: "Engaged focus during mental arithmetic exercises in Primary 4.",
-    image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=900&q=80",
+    image: SCHOOL_IMAGES.primaryStudy,
     aspect: "landscape"
   },
   {
-    title: "Early Years Discovery",
+    title: "Early Years Collaboration",
     category: "Transition & Nursery",
-    caption: "Tactile play and shape classification in our early learning studio.",
-    image: "https://images.unsplash.com/photo-1587691592099-24045742c181?auto=format&fit=crop&w=800&q=80",
+    caption: "Young learners share ideas around a classroom table in a warm, colourful setting.",
+    image: SCHOOL_IMAGES.earlyYears,
     aspect: "portrait"
   },
   {
-    title: "Creative Painting & Art",
+    title: "End of Year Performance",
     category: "Arts & Culture",
-    caption: "Exploring colour combinations, brush technique, and free expression.",
-    image: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=900&q=80",
+    caption: "Pupils express confidence, rhythm and teamwork on the concert stage.",
+    image: SCHOOL_IMAGES.concert,
     aspect: "square"
   },
   {
-    title: "Library Reading Hour",
+    title: "Outdoor Reading Circle",
     category: "Literacy & Phonics",
-    caption: "Quiet companionship and storybooks in the school library.",
-    image: "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=800&q=80",
+    caption: "Teacher-led group reading in the school\'s colourful outdoor learning area.",
+    image: SCHOOL_IMAGES.outdoorLearning,
     aspect: "portrait"
   },
   {
-    title: "Outdoor Play & Vitality",
-    category: "Playground & Sports",
-    caption: "Joyful games, movement, and camaraderie under the Surulere sun.",
-    image: "https://images.unsplash.com/photo-1472162072942-cd5147eb3902?auto=format&fit=crop&w=900&q=80",
+    title: "Martial Arts & Movement",
+    category: "Sports & Fitness",
+    caption: "Structured martial arts activities build coordination, discipline and confidence.",
+    image: SCHOOL_IMAGES.martialArts,
     aspect: "landscape"
   },
   {
     title: "Collaborative Study",
     category: "Primary 5 & 6",
-    caption: "Group problem-solving and mutual peer explanation.",
-    image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=800&q=80",
+    caption: "Focused written work and shared concentration in a primary classroom.",
+    image: SCHOOL_IMAGES.primaryStudy,
     aspect: "square"
   }
 ];

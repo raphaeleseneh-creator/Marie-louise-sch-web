@@ -92,9 +92,10 @@ export const AcademicJourney: React.FC<AcademicJourneyProps> = ({
               {/* Authentic Photo Crop */}
               <div className="w-full h-48 sm:h-56 rounded-2xl overflow-hidden mb-8 relative border border-[#E8E2ED]">
                 <img
-                  src="https://images.unsplash.com/photo-1587691592099-24045742c181?auto=format&fit=crop&w=900&q=80"
-                  alt="Early years pupils engaged in sensory play and early discovery"
+                  src="/images/school/early-years-classroom.jpg"
+                  alt="Marie Louise School early years pupils sharing a classroom learning activity"
                   className="w-full h-full object-cover"
+                  loading="lazy"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/60 via-transparent to-transparent" />
                 <span className="absolute bottom-3 left-4 text-xs font-bold text-white uppercase tracking-wider bg-[#29166F]/80 px-2 py-0.5 rounded-xs">
@@ -167,9 +168,10 @@ export const AcademicJourney: React.FC<AcademicJourneyProps> = ({
               {/* Authentic Photo Crop */}
               <div className="w-full h-48 sm:h-56 rounded-2xl overflow-hidden mb-8 relative border border-[#E8E2ED]">
                 <img
-                  src="https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=900&q=80"
-                  alt="Primary pupils engaged in problem solving and collaborative reading"
+                  src="/images/school/primary-classroom-study.jpg"
+                  alt="Marie Louise School primary pupils concentrating on written classwork"
                   className="w-full h-full object-cover"
+                  loading="lazy"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#29166F]/60 via-transparent to-transparent" />
                 <span className="absolute bottom-3 left-4 text-xs font-bold text-white uppercase tracking-wider bg-[#29166F]/80 px-2 py-0.5 rounded-xs">
