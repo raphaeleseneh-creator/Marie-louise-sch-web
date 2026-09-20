@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useId, useMemo } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   ArrowUpDown,
@@ -12,6 +13,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Clock,
   CreditCard,
   Download,
@@ -23,15 +26,19 @@ import {
   GraduationCap,
   HelpCircle,
   Home,
+  Info,
   LockKeyhole,
   LogOut,
   Menu,
   Paperclip,
   Plus,
+  Receipt,
+  RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
+  Tag,
   UserRound,
   Users,
   X,
@@ -44,6 +51,11 @@ import type {
   AbsenceReason,
   Assignment,
   Pupil,
+  Invoice,
+  Payment,
+  FeeCategory,
+  InvoiceItem,
+  InvoiceStatus,
 } from "../../types/portal";
 
 interface ParentPortalPageProps {
@@ -732,6 +744,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                   data={dashboardData}
                   onOpenProofModal={() => setIsProofModalOpen(true)}
                   onSelectChild={handleSwitchPupil}
+                  onNotify={(msg) => setActionSuccess(msg)}
                 />
               ) : null}
 
@@ -2247,157 +2260,1059 @@ const Reports: React.FC<{
 };
 
 /**
- * 5. Fees & Receipts View
+ * Consistent Nigerian Naira currency formatter
+ */
+const formatNaira = (amount: number, showKobo = true): string => {
+  return `₦${amount.toLocaleString("en-NG", {
+    minimumFractionDigits: showKobo ? 2 : 0,
+    maximumFractionDigits: showKobo ? 2 : 0,
+  })}`;
+};
+
+/**
+ * 5. Fees & Receipts View (Airtable-Ready Architecture)
  */
 const Fees: React.FC<{
   data: ParentDashboardData;
   onOpenProofModal: () => void;
   onSelectChild: (pupilId: string) => void;
-}> = ({ data, onOpenProofModal, onSelectChild }) => {
+  onNotify?: (message: string) => void;
+}> = ({ data, onOpenProofModal, onSelectChild, onNotify }) => {
   const isFamily = data.isFamilyView;
-  const totalBalance = data.invoices.reduce((acc, inv) => acc + inv.balance, 0);
+  const pupils = data.pupils;
+  const activePupil = data.selectedPupil;
+
+  // Navigation & filtering states
+  const [activeTab, setActiveTab] = useState<"invoices" | "payments">("invoices");
+  const [selectedTerm, setSelectedTerm] = useState<string>("First Term 2026/2027");
+  const [statusFilter, setStatusFilter] = useState<"all" | "Outstanding" | "Part-paid" | "Overdue" | "Paid">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"due-soon" | "due-late" | "amount-high" | "amount-low">("due-soon");
+  const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set(["recInv001Term1"]));
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [isLoadingTerm, setIsLoadingTerm] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Available terms derived from invoice records
+  const availableTerms = useMemo(() => {
+    const terms = Array.from(new Set(data.invoices.map((inv) => inv.term)));
+    return terms.length > 0 ? terms : ["First Term 2026/2027"];
+  }, [data.invoices]);
+
+  // Handle simulated term switching with loading effect
+  const handleTermChange = (term: string) => {
+    setIsLoadingTerm(true);
+    setHasError(false);
+    setTimeout(() => {
+      setSelectedTerm(term);
+      setIsLoadingTerm(false);
+    }, 250);
+  };
+
+  // Toggle invoice itemized breakdown expansion
+  const toggleInvoiceExpand = (invoiceId: string) => {
+    setExpandedInvoiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(invoiceId)) {
+        next.delete(invoiceId);
+      } else {
+        next.add(invoiceId);
+      }
+      return next;
+    });
+  };
+
+  // Simulate downloading invoice PDF
+  const handleDownloadInvoice = async (inv: Invoice) => {
+    setDownloadingId(inv.id);
+    try {
+      await portalService.downloadInvoice(inv.id);
+      onNotify?.(`Downloaded invoice ${inv.invoiceNumber} (${inv.title})`);
+    } catch {
+      onNotify?.(`Simulated download for ${inv.invoiceNumber}.pdf completed.`);
+    } finally {
+      setTimeout(() => setDownloadingId(null), 400);
+    }
+  };
+
+  // Simulate downloading receipt PDF
+  const handleDownloadReceipt = async (pmt: Payment) => {
+    setDownloadingId(pmt.id);
+    try {
+      await portalService.downloadReceipt(pmt.id);
+      onNotify?.(`Official receipt ${pmt.receiptNumber} downloaded successfully.`);
+    } catch {
+      onNotify?.(`Simulated download for ${pmt.receiptNumber}.pdf completed.`);
+    } finally {
+      setTimeout(() => setDownloadingId(null), 400);
+    }
+  };
+
+  // Filter invoices by term, status, and search query
+  const filteredInvoices = useMemo(() => {
+    return data.invoices.filter((inv) => {
+      // Term filter
+      if (selectedTerm !== "all" && inv.term !== selectedTerm) {
+        return false;
+      }
+
+      // Status filter
+      if (statusFilter !== "all") {
+        const normalizedStatus =
+          inv.status === "Settled" ? "Paid" :
+          inv.status === "Partially Paid" ? "Part-paid" :
+          inv.status === "Pending" ? "Outstanding" : inv.status;
+
+        if (normalizedStatus !== statusFilter) {
+          return false;
+        }
+      }
+
+      // Search query (invoice number, reference, pupil name, or title)
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const child = pupils.find((p) => p.id === inv.pupilId);
+        const matchesRef = inv.invoiceReference?.toLowerCase().includes(q);
+        const matchesNum = inv.invoiceNumber.toLowerCase().includes(q);
+        const matchesTitle = inv.title.toLowerCase().includes(q);
+        const matchesChild = child?.fullName.toLowerCase().includes(q) || child?.firstName.toLowerCase().includes(q);
+
+        if (!matchesRef && !matchesNum && !matchesTitle && !matchesChild) {
+          return false;
+        }
+      }
+
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === "due-soon") {
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      }
+      if (sortBy === "due-late") {
+        return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+      }
+      if (sortBy === "amount-high") {
+        return b.amountDue - a.amountDue;
+      }
+      if (sortBy === "amount-low") {
+        return a.amountDue - b.amountDue;
+      }
+      return 0;
+    });
+  }, [data.invoices, selectedTerm, statusFilter, searchQuery, sortBy, pupils]);
+
+  // Filter payments by term and search
+  const filteredPayments = useMemo(() => {
+    return data.payments.filter((pmt) => {
+      const inv = data.invoices.find((i) => i.id === pmt.invoiceId);
+      if (selectedTerm !== "all" && inv && inv.term !== selectedTerm) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const child = pupils.find((p) => p.id === pmt.pupilId);
+        const matchesRec = pmt.receiptNumber.toLowerCase().includes(q);
+        const matchesRef = pmt.reference.toLowerCase().includes(q);
+        const matchesDesc = pmt.itemDescription.toLowerCase().includes(q);
+        const matchesChild = child?.fullName.toLowerCase().includes(q);
+        if (!matchesRec && !matchesRef && !matchesDesc && !matchesChild) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [data.payments, data.invoices, selectedTerm, searchQuery, pupils]);
+
+  // Aggregate financial metrics for current view
+  const aggregateMetrics = useMemo(() => {
+    const activeInvoices = selectedTerm === "all"
+      ? data.invoices
+      : data.invoices.filter((i) => i.term === selectedTerm);
+
+    const totalBilled = activeInvoices.reduce((acc, inv) => acc + inv.amountDue, 0);
+    const totalPaid = activeInvoices.reduce((acc, inv) => acc + inv.amountPaid, 0);
+    const totalBalance = activeInvoices.reduce((acc, inv) => acc + inv.balance, 0);
+    const overdueCount = activeInvoices.filter((i) => i.status === "Overdue" || (new Date(i.dueDate) < new Date("2026-09-20") && i.balance > 0)).length;
+
+    // Category breakdown totals across all invoices
+    const categoryTotals: Record<FeeCategory, number> = {
+      Tuition: 0,
+      Books: 0,
+      Uniform: 0,
+      Meals: 0,
+      Transport: 0,
+      Clubs: 0,
+      Other: 0,
+    };
+
+    activeInvoices.forEach((inv) => {
+      if (inv.items && inv.items.length > 0) {
+        inv.items.forEach((item) => {
+          if (categoryTotals[item.category] !== undefined) {
+            categoryTotals[item.category] += item.amount;
+          } else {
+            categoryTotals.Other += item.amount;
+          }
+        });
+      } else {
+        // Fallback to tuition
+        categoryTotals.Tuition += inv.amountDue;
+      }
+    });
+
+    return {
+      totalBilled,
+      totalPaid,
+      totalBalance,
+      overdueCount,
+      categoryTotals,
+    };
+  }, [data.invoices, selectedTerm]);
+
+  // Status count badges
+  const statusCounts = useMemo(() => {
+    const termInvoices = selectedTerm === "all"
+      ? data.invoices
+      : data.invoices.filter((i) => i.term === selectedTerm);
+
+    return {
+      all: termInvoices.length,
+      Outstanding: termInvoices.filter((i) => i.status === "Outstanding" || i.status === "Pending").length,
+      "Part-paid": termInvoices.filter((i) => i.status === "Part-paid" || i.status === "Partially Paid").length,
+      Overdue: termInvoices.filter((i) => i.status === "Overdue").length,
+      Paid: termInvoices.filter((i) => i.status === "Paid" || i.status === "Settled").length,
+    };
+  }, [data.invoices, selectedTerm]);
+
+  // Visual status badge helper
+  const renderStatusBadge = (status: InvoiceStatus) => {
+    switch (status) {
+      case "Paid":
+      case "Settled":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-xs font-bold text-[#087A50] border border-[#087A50]/20">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Paid in full
+          </span>
+        );
+      case "Part-paid":
+      case "Partially Paid":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EFF6FF] px-2.5 py-0.5 text-xs font-bold text-[#1D4ED8] border border-[#1D4ED8]/20">
+            <RotateCcw className="h-3.5 w-3.5" /> Part-paid
+          </span>
+        );
+      case "Overdue":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF2F2] px-2.5 py-0.5 text-xs font-bold text-[#B91C1C] border border-[#B91C1C]/25">
+            <AlertCircle className="h-3.5 w-3.5" /> Overdue
+          </span>
+        );
+      case "Outstanding":
+      case "Pending":
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FEF9C3] px-2.5 py-0.5 text-xs font-bold text-[#854D0E] border border-[#854D0E]/20">
+            <Clock className="h-3.5 w-3.5" /> Outstanding
+          </span>
+        );
+    }
+  };
+
+  // Category visual metadata
+  const getCategoryBadge = (category: FeeCategory) => {
+    switch (category) {
+      case "Tuition":
+        return { label: "Tuition", icon: GraduationCap, bg: "bg-[#F3E8FF] text-[#6B21A8]" };
+      case "Books":
+        return { label: "Books & Study", icon: BookMarked, bg: "bg-[#EFF6FF] text-[#1E40AF]" };
+      case "Uniform":
+        return { label: "Uniform & Sport", icon: Tag, bg: "bg-[#ECFDF5] text-[#065F46]" };
+      case "Meals":
+        return { label: "Midday Meals", icon: Sparkles, bg: "bg-[#FEF3C7] text-[#92400E]" };
+      case "Transport":
+        return { label: "Bus Shuttle", icon: Clock, bg: "bg-[#E0F2FE] text-[#0369A1]" };
+      case "Clubs":
+        return { label: "Clubs & STEAM", icon: CheckCircle2, bg: "bg-[#EDE9FE] text-[#5B21B6]" };
+      case "Other":
+      default:
+        return { label: "Administrative / Levies", icon: FileText, bg: "bg-[#F1F5F9] text-[#475569]" };
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <section className="grid overflow-hidden rounded-xl bg-[#29166F] text-white sm:grid-cols-[1fr_auto]">
-        <div className="p-6 sm:p-8">
-          <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#E9DB3D]">
-            {isFamily
-              ? "Total family balance across all children"
-              : `First term balance · ${data.selectedPupil?.firstName}`}
-          </p>
-          <p className="mt-3 text-4xl font-extrabold">
-            ₦{totalBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
-          </p>
-          <p className="mt-2 text-sm text-white/65">
-            {totalBalance === 0
-              ? "All current invoices for your family have been settled."
-              : "Outstanding balance on pending invoice."}
-          </p>
-        </div>
-        <div className="flex items-center border-t border-white/12 bg-[#351A7D] px-8 py-6 sm:border-l sm:border-t-0">
-          <span className="inline-flex items-center gap-2 text-sm font-extrabold">
-            <CheckCircle2 className="h-5 w-5 text-[#E9DB3D]" />
-            {totalBalance === 0 ? "Payment complete" : "Payment pending"}
+      {/* Demonstration Data Banner */}
+      <div className="rounded-xl border border-[#D97706]/30 bg-[#FFFBEB] p-4 text-xs text-[#92400E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-start sm:items-center gap-2.5">
+          <Info className="h-4 w-4 text-[#D97706] shrink-0 mt-0.5 sm:mt-0" />
+          <span>
+            <strong>Demonstration Financial Records:</strong> All tuition schedules, invoice numbers, and receipts
+            follow Airtable linked-record schemas. Real payment gateway transactions are intentionally disabled in preview mode.
           </span>
         </div>
-      </section>
+        <button
+          onClick={onOpenProofModal}
+          className="inline-flex items-center gap-1 text-[11px] font-extrabold text-[#B45309] hover:underline cursor-pointer shrink-0"
+        >
+          <Plus className="h-3 w-3" /> Submit offline transfer proof
+        </button>
+      </div>
 
-      {/* Invoices List */}
-      <section className="rounded-xl border border-[#E5DFE9] bg-white">
-        <div className="flex flex-col justify-between gap-4 border-b border-[#EEE9F1] p-5 sm:flex-row sm:items-center sm:p-6">
-          <div>
-            <h2 className="text-xl font-extrabold text-[#29166F]">
-              {isFamily ? "All Enrolled Pupils Fee Invoices" : `Term Invoices: ${data.selectedPupil?.firstName}`}
-            </h2>
-            <p className="text-xs text-[#817887] mt-1">First term 2026/2027 academic session</p>
-          </div>
-          <button
-            onClick={onOpenProofModal}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
-          >
-            <Plus className="h-4 w-4" /> Upload payment receipt
-          </button>
-        </div>
+      {/* Primary Financial Summary Hero Banner */}
+      <section className="overflow-hidden rounded-2xl bg-[#29166F] text-white shadow-md">
+        <div className="grid lg:grid-cols-[1.4fr_1fr] border-b border-white/10">
+          <div className="p-6 sm:p-8">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[#E9DB3D] px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wider text-[#29166F]">
+                {isFamily ? "Family Fee Portfolio" : `${activePupil?.firstName}'s Fee Statement`}
+              </span>
+              <span className="text-xs text-white/70">
+                Academic Term: <strong className="text-white">{selectedTerm === "all" ? "All Sessions" : selectedTerm}</strong>
+              </span>
+            </div>
 
-        <div className="divide-y divide-[#EEE9F1]">
-          {data.invoices.map((inv) => {
-            const child = data.pupils.find((p) => p.id === inv.pupilId);
-            return (
-              <div key={inv.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-[#29166F] text-sm">{inv.title}</span>
-                    {child && (
-                      <span className="text-[10px] bg-[#F1ECF6] text-[#581C87] font-bold px-2 py-0.5 rounded-md">
-                        {child.firstName} ({child.class})
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[#817887] mt-1">
-                    Invoice: {inv.invoiceNumber} &bull; Due date: {inv.dueDate}
-                  </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-base font-extrabold text-[#29166F]">
-                      ₦{inv.amountDue.toLocaleString()}
-                    </p>
-                    <span className="text-xs font-bold text-[#087A50]">{inv.status}</span>
-                  </div>
-                </div>
+            <div className="mt-4">
+              <p className="text-xs font-bold text-white/60 uppercase tracking-wider">Total Outstanding Balance</p>
+              <div className="mt-1 flex flex-wrap items-baseline gap-3">
+                <p className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
+                  {formatNaira(aggregateMetrics.totalBalance)}
+                </p>
+                {aggregateMetrics.totalBalance === 0 ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#E9DB3D] px-3 py-1 text-xs font-extrabold text-[#29166F]">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> All Settled
+                  </span>
+                ) : aggregateMetrics.overdueCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EF4444] px-3 py-1 text-xs font-extrabold text-white">
+                    <AlertTriangle className="h-3.5 w-3.5" /> {aggregateMetrics.overdueCount} Overdue Bill
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-extrabold text-white">
+                    <Clock className="h-3.5 w-3.5" /> Payment Pending
+                  </span>
+                )}
               </div>
-            );
-          })}
+              <p className="mt-2 text-xs sm:text-sm text-white/70">
+                {isFamily
+                  ? `Combined balance across all ${pupils.length} enrolled pupils for ${selectedTerm === "all" ? "all recorded terms" : selectedTerm}.`
+                  : `Total pending charges for ${activePupil?.fullName} (${activePupil?.class}).`}
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Metrics Summary */}
+          <div className="grid grid-cols-2 divide-x divide-white/10 bg-[#22105F] p-6 sm:p-8">
+            <div className="pr-4 flex flex-col justify-center">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-white/60">Total Billed</span>
+              <span className="mt-1 text-xl sm:text-2xl font-extrabold text-white">
+                {formatNaira(aggregateMetrics.totalBilled)}
+              </span>
+              <span className="mt-1 text-[11px] text-white/60">
+                {filteredInvoices.length} invoice{filteredInvoices.length === 1 ? "" : "s"} issued
+              </span>
+            </div>
+            <div className="pl-4 flex flex-col justify-center">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#E9DB3D]">Total Settled</span>
+              <span className="mt-1 text-xl sm:text-2xl font-extrabold text-[#E9DB3D]">
+                {formatNaira(aggregateMetrics.totalPaid)}
+              </span>
+              <span className="mt-1 text-[11px] text-white/60">
+                {aggregateMetrics.totalBilled > 0
+                  ? `${Math.round((aggregateMetrics.totalPaid / aggregateMetrics.totalBilled) * 100)}% payment rate`
+                  : "0%"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action strip inside hero */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#1C0D4F] px-6 py-3.5 text-xs">
+          <div className="flex items-center gap-2 text-white/70">
+            <ShieldCheck className="h-4 w-4 text-[#E9DB3D]" />
+            <span>Official Marie Louise School Electronic Fee Billing System</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => onNotify?.("Statement of Account generated as PDF. Download initiated.")}
+              className="inline-flex items-center gap-1.5 font-bold text-white/90 hover:text-white transition cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5" /> Download Full Statement
+            </button>
+            <span className="text-white/30">|</span>
+            <button
+              onClick={onOpenProofModal}
+              className="inline-flex items-center gap-1.5 font-bold text-[#E9DB3D] hover:underline cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" /> Upload Bank Proof
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* Receipts List */}
-      <section className="rounded-xl border border-[#E5DFE9] bg-white">
-        <div className="border-b border-[#EEE9F1] p-5 sm:p-6">
-          <h2 className="text-xl font-extrabold text-[#29166F]">Receipts & Payment History</h2>
+      {/* Family Overview: Individual Child Fee Balance Cards */}
+      {isFamily && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
+                Family Balance Distribution
+              </p>
+              <h3 className="text-base font-extrabold text-[#29166F]">
+                Combined Breakdown by Linked Child
+              </h3>
+            </div>
+            <span className="text-xs text-[#817887]">{pupils.length} Enrolled Children</span>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {pupils.map((child) => {
+              const childInvoices = data.invoices.filter((i) => i.pupilId === child.id && (selectedTerm === "all" || i.term === selectedTerm));
+              const childBilled = childInvoices.reduce((sum, i) => sum + i.amountDue, 0);
+              const childPaid = childInvoices.reduce((sum, i) => sum + i.amountPaid, 0);
+              const childBalance = childInvoices.reduce((sum, i) => sum + i.balance, 0);
+
+              return (
+                <div
+                  key={child.id}
+                  className="rounded-xl border border-[#E5DFE9] bg-white p-4 shadow-xs hover:border-[#581C87]/40 transition flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#581C87] text-white font-extrabold text-xs">
+                          {child.avatarInitials}
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-[#29166F] leading-tight">{child.fullName}</h4>
+                          <p className="text-[11px] text-[#817887]">{child.class} · {child.admissionNumber}</p>
+                        </div>
+                      </div>
+                      {childBalance === 0 ? (
+                        <span className="rounded-full bg-[#E5F7ED] px-2 py-0.5 text-[10px] font-extrabold text-[#087A50]">
+                          Settled
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-[#FEF9C3] px-2 py-0.5 text-[10px] font-extrabold text-[#854D0E]">
+                          Pending
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-3.5 space-y-1.5 border-t border-[#EEE9F1] pt-3 text-xs">
+                      <div className="flex justify-between text-[#625B69]">
+                        <span>Amount Billed:</span>
+                        <strong className="text-[#342D3A]">{formatNaira(childBilled, false)}</strong>
+                      </div>
+                      <div className="flex justify-between text-[#625B69]">
+                        <span>Amount Paid:</span>
+                        <strong className="text-[#087A50]">{formatNaira(childPaid, false)}</strong>
+                      </div>
+                      <div className="flex justify-between border-t border-[#F1ECF6] pt-1.5 text-sm">
+                        <span className="font-bold text-[#29166F]">Outstanding:</span>
+                        <strong className={childBalance > 0 ? "text-[#B91C1C] font-extrabold" : "text-[#087A50] font-extrabold"}>
+                          {formatNaira(childBalance)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onSelectChild(child.id)}
+                    className="mt-3.5 pt-2.5 border-t border-[#EEE9F1] text-xs font-bold text-[#581C87] hover:underline flex items-center justify-between cursor-pointer w-full"
+                  >
+                    <span>View {child.firstName}&apos;s fee history</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Fee Category Breakdown Summary Bar */}
+      <section className="rounded-xl border border-[#E5DFE9] bg-white p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
+              Fee Category Allocation
+            </p>
+            <h3 className="text-base font-extrabold text-[#29166F]">
+              Breakdown by Component & Service
+            </h3>
+          </div>
+          <span className="text-xs text-[#817887]">
+            Total Invoiced: <strong>{formatNaira(aggregateMetrics.totalBilled)}</strong>
+          </span>
         </div>
-        <div className="divide-y divide-[#EEE9F1]">
-          {data.payments.map((pmt) => {
-            const child = data.pupils.find((p) => p.id === pmt.pupilId);
+
+        {/* 7 Itemized Categories Chips */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+          {(
+            [
+              { cat: "Tuition", label: "Tuition", icon: GraduationCap, color: "text-[#581C87] bg-[#F1ECF6] border-[#D8C7E8]" },
+              { cat: "Books", label: "Books", icon: BookMarked, color: "text-[#1E40AF] bg-[#EFF6FF] border-[#BFDBFE]" },
+              { cat: "Uniform", label: "Uniform", icon: Tag, color: "text-[#065F46] bg-[#ECFDF5] border-[#A7F3D0]" },
+              { cat: "Meals", label: "Meals", icon: Sparkles, color: "text-[#92400E] bg-[#FEF3C7] border-[#FDE68A]" },
+              { cat: "Transport", label: "Transport", icon: Clock, color: "text-[#0369A1] bg-[#E0F2FE] border-[#BAE6FD]" },
+              { cat: "Clubs", label: "Clubs", icon: CheckCircle2, color: "text-[#4C1D95] bg-[#EDE9FE] border-[#DDD6FE]" },
+              { cat: "Other", label: "Other", icon: FileText, color: "text-[#334155] bg-[#F1F5F9] border-[#CBD5E1]" },
+            ] as const
+          ).map((item) => {
+            const amount = aggregateMetrics.categoryTotals[item.cat];
+            const Icon = item.icon;
             return (
               <div
-                key={pmt.id}
-                className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:px-6"
+                key={item.cat}
+                className={`rounded-xl border p-3 flex flex-col justify-between ${item.color}`}
               >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-extrabold text-[#342D3A]">{pmt.itemDescription}</p>
-                    {child && (
-                      <span className="text-[10px] bg-[#E8E2ED] text-[#29166F] font-bold px-1.5 py-0.5 rounded">
-                        {child.firstName}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-[#817887]">
-                    {pmt.receiptNumber} · {pmt.paymentDate} · ₦{pmt.amount.toLocaleString()} ({pmt.paymentMethod})
-                  </p>
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-[11px] font-extrabold uppercase">{item.label}</span>
+                  <Icon className="h-3.5 w-3.5 opacity-80 shrink-0" />
                 </div>
-                <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#DCD5E1] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F8F6FA] transition cursor-pointer">
-                  <Download className="h-4 w-4" /> Receipt
-                </button>
+                <p className="text-sm font-extrabold leading-tight">
+                  {formatNaira(amount, false)}
+                </p>
               </div>
             );
           })}
         </div>
+      </section>
 
-        {data.paymentProofs.length > 0 && (
-          <div className="border-t border-[#EEE9F1] p-5 bg-[#FBF9FD]">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87] mb-3">
-              Submitted Payment Proofs
-            </p>
-            <div className="space-y-2">
-              {data.paymentProofs.map((proof) => {
-                const child = data.pupils.find((p) => p.id === proof.pupilId);
-                return (
-                  <div
-                    key={proof.id}
-                    className="flex items-center justify-between rounded-lg border border-[#E8E2ED] bg-white p-3 text-xs"
+      {/* Controls Bar: Term Selector, Search, Filter Tabs, and View Switcher */}
+      <section className="space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {/* Section Tabs (Invoices vs Payments) */}
+          <div className="inline-flex rounded-xl bg-[#EFEBF2] p-1 border border-[#E2DBE7]">
+            <button
+              onClick={() => setActiveTab("invoices")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-extrabold transition cursor-pointer ${
+                activeTab === "invoices"
+                  ? "bg-white text-[#29166F] shadow-xs"
+                  : "text-[#625B69] hover:text-[#29166F]"
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              <span>Invoices & Fee Schedules</span>
+              <span className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "invoices" ? "bg-[#581C87] text-white" : "bg-[#DDD6E5] text-[#581C87]"
+              }`}>
+                {filteredInvoices.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("payments")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-extrabold transition cursor-pointer ${
+                activeTab === "payments"
+                  ? "bg-white text-[#29166F] shadow-xs"
+                  : "text-[#625B69] hover:text-[#29166F]"
+              }`}
+            >
+              <Receipt className="h-4 w-4" />
+              <span>Recorded Payments & Receipts</span>
+              <span className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "payments" ? "bg-[#087A50] text-white" : "bg-[#DDD6E5] text-[#087A50]"
+              }`}>
+                {filteredPayments.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Term Selector Dropdown */}
+          <div className="flex items-center gap-2">
+            <label htmlFor="fees-term-select" className="text-xs font-bold text-[#625B69] whitespace-nowrap">
+              Academic Term:
+            </label>
+            <div className="relative min-w-[200px]">
+              <select
+                id="fees-term-select"
+                value={selectedTerm}
+                onChange={(e) => handleTermChange(e.target.value)}
+                className="h-10 w-full appearance-none rounded-lg border border-[#DCD5E1] bg-white pl-3 pr-8 text-xs font-bold text-[#29166F] shadow-2xs outline-none transition focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15 cursor-pointer"
+              >
+                {availableTerms.map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+                <option value="all">All Academic Terms</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#817887]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Secondary Bar: Status Filters (when on invoices tab), Search & Sort */}
+        {activeTab === "invoices" && (
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
+            {/* Filter Chips */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: "all", label: "All", count: statusCounts.all },
+                  { id: "Outstanding", label: "Outstanding", count: statusCounts.Outstanding },
+                  { id: "Part-paid", label: "Part-paid", count: statusCounts["Part-paid"] },
+                  { id: "Overdue", label: "Overdue", count: statusCounts.Overdue },
+                  { id: "Paid", label: "Paid", count: statusCounts.Paid },
+                ] as const
+              ).map((chip) => (
+                <button
+                  key={chip.id}
+                  onClick={() => setStatusFilter(chip.id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                    statusFilter === chip.id
+                      ? "bg-[#581C87] text-white shadow-xs"
+                      : "border border-[#E5DFE9] bg-white text-[#625B69] hover:bg-[#F8F6FA]"
+                  }`}
+                >
+                  <span>{chip.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-extrabold ${
+                      statusFilter === chip.id ? "bg-white/25 text-white" : "bg-[#F1ECF6] text-[#581C87]"
+                    }`}
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-[#29166F]">{proof.bankName}</span>
-                        {child && <span className="text-[10px] text-[#581C87] font-semibold">({child.firstName})</span>}
-                      </div>
-                      <p className="text-[11px] text-[#817887] mt-0.5">
-                        Ref: {proof.referenceNumber} &bull; ₦{proof.amount.toLocaleString()} on {proof.paymentDate}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-[#E5F7ED] px-3 py-1 font-extrabold text-[#087A50]">
-                      {proof.status}
-                    </span>
-                  </div>
-                );
-              })}
+                    {chip.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Search and Sort */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#817887]" />
+                <input
+                  type="text"
+                  placeholder="Search invoice or reference..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-[#DCD5E1] bg-white pl-8 pr-3 text-xs outline-none transition focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[#817887] hover:text-[#29166F]"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                aria-label="Sort invoices by"
+                className="h-9 rounded-lg border border-[#DCD5E1] bg-white px-2.5 text-xs font-semibold text-[#342D3A] outline-none cursor-pointer"
+              >
+                <option value="due-soon">Due: Soonest first</option>
+                <option value="due-late">Due: Latest first</option>
+                <option value="amount-high">Amount: Highest first</option>
+                <option value="amount-low">Amount: Lowest first</option>
+              </select>
             </div>
           </div>
         )}
       </section>
+
+      {/* Loading State Skeleton */}
+      {isLoadingTerm && (
+        <div className="space-y-4 py-8">
+          <div className="h-28 w-full animate-pulse rounded-2xl bg-white/70 border border-[#E5DFE9]" />
+          <div className="h-28 w-full animate-pulse rounded-2xl bg-white/70 border border-[#E5DFE9]" />
+        </div>
+      )}
+
+      {/* Error State */}
+      {hasError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+          <h4 className="font-extrabold text-base text-red-900">Unable to load fee schedules</h4>
+          <p className="mt-1 text-xs text-red-600 max-w-md mx-auto">
+            A temporary connection issue prevented the portal service from loading invoices. Please retry or contact the bursary.
+          </p>
+          <button
+            onClick={() => {
+              setIsLoadingTerm(true);
+              setTimeout(() => {
+                setIsLoadingTerm(false);
+                setHasError(false);
+              }, 300);
+            }}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Retry loading records
+          </button>
+        </div>
+      )}
+
+      {/* TAB 1: Invoices & Fee Schedules */}
+      {!isLoadingTerm && !hasError && activeTab === "invoices" && (
+        <div className="space-y-4">
+          {filteredInvoices.length > 0 ? (
+            filteredInvoices.map((inv) => {
+              const child = pupils.find((p) => p.id === inv.pupilId);
+              const isExpanded = expandedInvoiceIds.has(inv.id);
+              const isDownloading = downloadingId === inv.id;
+
+              return (
+                <article
+                  key={inv.id}
+                  className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs transition hover:border-[#581C87]/30 hover:shadow-sm"
+                >
+                  {/* Top Bar: Reference, Child Tag, Status, Term */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EEE9F1] pb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-extrabold text-[#581C87] bg-[#F1ECF6] px-2 py-0.5 rounded-md">
+                        {inv.invoiceReference || inv.invoiceNumber}
+                      </span>
+                      {child && (
+                        <span className="text-xs bg-[#E8E2ED] text-[#29166F] font-bold px-2 py-0.5 rounded-md">
+                          {child.fullName} ({child.class})
+                        </span>
+                      )}
+                      <span className="text-xs text-[#817887] hidden sm:inline">&bull; {inv.term}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {renderStatusBadge(inv.status)}
+                    </div>
+                  </div>
+
+                  {/* Main Invoice Header & Financial Metrics Grid */}
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr] items-start">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-extrabold text-[#29166F]">
+                        {inv.title}
+                      </h3>
+                      {inv.notes && (
+                        <p className="mt-1 text-xs text-[#625B69] leading-relaxed">
+                          {inv.notes}
+                        </p>
+                      )}
+
+                      {/* Included Categories Badges */}
+                      {inv.items && inv.items.length > 0 && (
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">Includes:</span>
+                          {Array.from(new Set(inv.items.map((it) => it.category))).map((cat) => {
+                            const badge = getCategoryBadge(cat);
+                            return (
+                              <span
+                                key={cat}
+                                className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold ${badge.bg}`}
+                              >
+                                {badge.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Financial Figures Card */}
+                    <div className="rounded-xl bg-[#FAF8FC] border border-[#EEE9F1] p-4 text-xs">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-[#817887]">Amount Billed</span>
+                          <p className="text-base font-extrabold text-[#29166F] mt-0.5">
+                            {formatNaira(inv.amountDue)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-[#817887]">Amount Paid</span>
+                          <p className="text-base font-extrabold text-[#087A50] mt-0.5">
+                            {formatNaira(inv.amountPaid)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 border-t border-[#EEE9F1] pt-2.5 flex items-baseline justify-between">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-[#817887]">Outstanding Balance</span>
+                          <p className={`text-lg font-extrabold ${inv.balance > 0 ? "text-[#B91C1C]" : "text-[#087A50]"}`}>
+                            {formatNaira(inv.balance)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold uppercase text-[#817887]">Payment Due Date</span>
+                          <p className="text-xs font-extrabold text-[#342D3A] mt-0.5">{inv.dueDate}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expandable Itemized Breakdown Section */}
+                  {inv.items && inv.items.length > 0 && (
+                    <div className="mt-4 border-t border-[#EEE9F1] pt-3">
+                      <button
+                        onClick={() => toggleInvoiceExpand(inv.id)}
+                        className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="h-3.5 w-3.5" />
+                            <span>Hide itemized fee breakdown ({inv.items.length} items)</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            <span>View itemized fee breakdown ({inv.items.length} items)</span>
+                          </>
+                        )}
+                      </button>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-3 overflow-hidden"
+                          >
+                            <div className="rounded-xl border border-[#EEE9F1] bg-[#FDFCFE] divide-y divide-[#EEE9F1] text-xs">
+                              <div className="grid grid-cols-[120px_1fr_120px] bg-[#F8F6FA] px-4 py-2 font-extrabold text-[#581C87] uppercase text-[10px]">
+                                <span>Category</span>
+                                <span>Item Description</span>
+                                <span className="text-right">Amount (NGN)</span>
+                              </div>
+
+                              {inv.items.map((item) => {
+                                const badge = getCategoryBadge(item.category);
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className="grid grid-cols-[120px_1fr_120px] items-center px-4 py-2.5 hover:bg-[#F9F7FA]"
+                                  >
+                                    <span className={`inline-block w-fit rounded px-2 py-0.5 text-[10px] font-bold ${badge.bg}`}>
+                                      {item.category}
+                                    </span>
+                                    <span className="font-medium text-[#342D3A] pr-2">{item.description}</span>
+                                    <span className="font-extrabold text-[#29166F] text-right">
+                                      {formatNaira(item.amount, false)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Total line */}
+                              <div className="grid grid-cols-[120px_1fr_120px] bg-[#F1ECF6]/60 px-4 py-2.5 font-extrabold text-[#29166F]">
+                                <span>Subtotal</span>
+                                <span>Total Itemized Charges</span>
+                                <span className="text-right">{formatNaira(inv.amountDue)}</span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+
+                  {/* Actions Footer */}
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#EEE9F1] pt-4">
+                    <span className="text-[11px] text-[#817887]">
+                      Issued on: <strong>{inv.issueDate}</strong> &bull; Invoice Record: <strong>{inv.id}</strong>
+                    </span>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleDownloadInvoice(inv)}
+                        disabled={isDownloading}
+                        className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-white px-3.5 text-xs font-extrabold text-[#29166F] hover:bg-[#F8F6FA] hover:border-[#BBAFC4] transition cursor-pointer"
+                      >
+                        {isDownloading ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#581C87]" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 text-[#581C87]" />
+                        )}
+                        <span>Download Invoice (PDF)</span>
+                      </button>
+
+                      {inv.balance > 0 && (
+                        <button
+                          onClick={onOpenProofModal}
+                          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#581C87] px-4 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-xs transition cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Submit Transfer Proof</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            /* Empty State for Invoices */
+            <div className="rounded-2xl border border-[#E5DFE9] bg-white p-12 text-center shadow-xs">
+              <FileText className="h-12 w-12 text-[#BBAFC4] mx-auto mb-3" />
+              <h3 className="text-lg font-extrabold text-[#29166F]">No Invoices Found</h3>
+              <p className="mt-1 text-xs text-[#817887] max-w-sm mx-auto">
+                No invoices match the selected status filter <strong>&ldquo;{statusFilter}&rdquo;</strong> for{" "}
+                <strong>{selectedTerm === "all" ? "all terms" : selectedTerm}</strong>.
+              </p>
+              <button
+                onClick={() => {
+                  setStatusFilter("all");
+                  setSearchQuery("");
+                  setSelectedTerm("all");
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-4 py-2 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset all filters
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: Recorded Payments & Receipts */}
+      {!isLoadingTerm && !hasError && activeTab === "payments" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-[#E5DFE9] bg-white overflow-hidden shadow-xs">
+            <div className="border-b border-[#EEE9F1] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#29166F]">Verified Payments & Receipts</h3>
+                <p className="text-xs text-[#817887] mt-0.5">
+                  Official bank transfer settlements cleared and credited by Marie Louise School registry.
+                </p>
+              </div>
+              <button
+                onClick={onOpenProofModal}
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-3.5 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" /> Submit payment proof
+              </button>
+            </div>
+
+            {filteredPayments.length > 0 ? (
+              <div className="divide-y divide-[#EEE9F1]">
+                {filteredPayments.map((pmt) => {
+                  const child = pupils.find((p) => p.id === pmt.pupilId);
+                  const isDownloading = downloadingId === pmt.id;
+
+                  return (
+                    <div
+                      key={pmt.id}
+                      className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#FDFCFE] transition"
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="font-mono text-xs font-extrabold text-[#087A50] bg-[#E5F7ED] px-2 py-0.5 rounded-md">
+                            {pmt.receiptNumber}
+                          </span>
+                          {child && (
+                            <span className="text-xs bg-[#E8E2ED] text-[#29166F] font-bold px-2 py-0.5 rounded-md">
+                              {child.fullName} ({child.class})
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#E5F7ED] px-2 py-0.5 text-[10px] font-extrabold text-[#087A50]">
+                            <CheckCircle2 className="h-3 w-3" /> {pmt.status}
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-extrabold text-[#29166F] mt-1.5">
+                          {pmt.itemDescription}
+                        </h4>
+
+                        <p className="text-xs text-[#817887] mt-1">
+                          Payment Date: <strong>{pmt.paymentDate}</strong> &bull; Bank Reference:{" "}
+                          <span className="font-mono font-bold text-[#342D3A]">{pmt.reference}</span> &bull;{" "}
+                          {pmt.paymentMethod}
+                        </p>
+                      </div>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3">
+                        <p className="text-lg font-extrabold text-[#087A50]">
+                          {formatNaira(pmt.amount)}
+                        </p>
+                        <button
+                          onClick={() => handleDownloadReceipt(pmt)}
+                          disabled={isDownloading}
+                          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-white px-3 text-xs font-extrabold text-[#581C87] hover:bg-[#F8F6FA] hover:border-[#BBAFC4] transition cursor-pointer"
+                        >
+                          {isDownloading ? (
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#581C87]" />
+                          ) : (
+                            <Download className="h-3.5 w-3.5 text-[#581C87]" />
+                          )}
+                          <span>Official Receipt (PDF)</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-12 text-center">
+                <Receipt className="h-10 w-10 text-[#BBAFC4] mx-auto mb-2" />
+                <p className="text-sm font-extrabold text-[#29166F]">No payments recorded for this term</p>
+                <p className="text-xs text-[#817887] mt-1">
+                  Once bank transfers are confirmed by the finance office, official receipts appear here.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Submitted Payment Proofs Section */}
+          <div className="rounded-2xl border border-[#E5DFE9] bg-white p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between border-b border-[#EEE9F1] pb-4">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
+                  Electronic Transfer Submissions
+                </p>
+                <h3 className="text-base font-extrabold text-[#29166F]">
+                  Submitted Bank Proofs Awaiting Verification
+                </h3>
+              </div>
+              <button
+                onClick={onOpenProofModal}
+                className="inline-flex items-center gap-1 text-xs font-extrabold text-[#581C87] hover:underline cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" /> Submit another proof
+              </button>
+            </div>
+
+            {data.paymentProofs.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {data.paymentProofs.map((proof) => {
+                  const child = pupils.find((p) => p.id === proof.pupilId);
+                  return (
+                    <div
+                      key={proof.id}
+                      className="rounded-xl border border-[#E8E2ED] bg-[#FBF9FD] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[#29166F]">{proof.bankName}</span>
+                          {child && (
+                            <span className="text-[10px] bg-[#E8E2ED] text-[#581C87] font-bold px-2 py-0.5 rounded">
+                              {child.firstName} ({child.class})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[#625B69] mt-1">
+                          Transfer Ref: <strong className="font-mono text-[#29166F]">{proof.referenceNumber}</strong> &bull; Amount:{" "}
+                          <strong className="text-[#087A50]">{formatNaira(proof.amount)}</strong> on {proof.paymentDate}
+                        </p>
+                        {proof.notes && (
+                          <p className="text-[11px] text-[#817887] italic mt-0.5">{proof.notes}</p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="rounded-full bg-[#E5F7ED] px-3 py-1 font-extrabold text-[#087A50]">
+                          {proof.status}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 text-xs text-[#817887]">No pending transfer proofs under review.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

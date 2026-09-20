@@ -8,7 +8,7 @@ export type AirtableRecordId = string;
 export type Gender = "Male" | "Female";
 export type StudentStatus = "Good standing" | "Active" | "Probation" | "Alumni";
 export type AttendanceStatus = "Present" | "Late" | "Absent" | "Excused";
-export type InvoiceStatus = "Settled" | "Partially Paid" | "Pending" | "Overdue";
+export type InvoiceStatus = "Paid" | "Part-paid" | "Outstanding" | "Overdue" | "Settled" | "Partially Paid" | "Pending";
 export type PaymentStatus = "Verified" | "Processing" | "Failed";
 export type AssignmentStatus = "Pending" | "Submitted" | "Graded" | "Overdue" | "Completed";
 export type AbsenceReason = "Illness" | "Medical Appointment" | "Family Event" | "Travel" | "Other";
@@ -113,24 +113,44 @@ export interface AttendanceRecord {
   remarks?: string;
 }
 
+export type FeeCategory =
+  | "Tuition"
+  | "Books"
+  | "Uniform"
+  | "Meals"
+  | "Transport"
+  | "Clubs"
+  | "Other";
+
+export interface InvoiceItem {
+  id: AirtableRecordId;
+  category: FeeCategory;
+  description: string;
+  amount: number;
+}
+
 /**
  * 6. Invoice Model (Airtable: Invoices)
  */
 export interface Invoice {
   id: AirtableRecordId;
-  invoiceNumber: string; // e.g. "MLS-INV-2026-01"
+  invoiceNumber: string; // e.g. "MLS-INV-2026-0082"
+  invoiceReference: string; // e.g. "REF-MLS-26-P3-82"
   pupilId: AirtableRecordId;
   parentId: AirtableRecordId;
   term: string; // e.g. "First Term 2026/2027"
   academicYear: string; // e.g. "2026/2027"
   title: string; // e.g. "Term 1 Comprehensive School Bill"
-  amountDue: number; // in NGN
+  amountDue: number; // in NGN (amount billed)
   amountPaid: number;
   balance: number;
   currency: string; // "NGN"
   dueDate: string;
   issueDate: string;
   status: InvoiceStatus;
+  items?: InvoiceItem[];
+  notes?: string;
+  downloadUrl?: string;
 }
 
 /**
@@ -140,15 +160,19 @@ export interface Payment {
   id: AirtableRecordId;
   receiptNumber: string; // e.g. "MLS-RCP-8921"
   invoiceId: AirtableRecordId;
+  invoiceNumber?: string;
   pupilId: AirtableRecordId;
   parentId: AirtableRecordId;
   itemDescription: string; // e.g. "Tuition & learning materials"
+  category?: FeeCategory;
   amount: number;
   currency: string;
   paymentDate: string; // e.g. "08 Sep 2026"
   paymentMethod: "Bank Transfer" | "Card" | "Direct Debit" | "Cash";
   status: PaymentStatus;
   reference: string;
+  receiptDownloadUrl?: string;
+  channel?: string;
 }
 
 /**

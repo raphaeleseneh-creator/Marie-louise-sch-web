@@ -71,6 +71,9 @@ export interface ParentPortalService {
   submitAbsenceReport(input: CreateAbsenceReportInput): Promise<AbsenceReport>;
   submitPaymentProof(input: CreatePaymentProofInput): Promise<PaymentProof>;
   toggleAssignmentCompletion(assignmentId: string, completed: boolean): Promise<Assignment>;
+  downloadInvoice(invoiceId: string): Promise<{ success: boolean; filename: string; invoice?: Invoice }>;
+  downloadReceipt(paymentId: string): Promise<{ success: boolean; filename: string; payment?: Payment }>;
+  getAvailableTerms(): Promise<string[]>;
 }
 
 /**
@@ -139,6 +142,8 @@ class LocalParentPortalService implements ParentPortalService {
     const familyCards: PupilFamilyCard[] = parentPupils.map((pupil) => {
       const pupilInvs = this.invoices.filter((i) => i.pupilId === pupil.id);
       const unpaidBalance = pupilInvs.reduce((acc, inv) => acc + inv.balance, 0);
+      const totalBilled = pupilInvs.reduce((acc, inv) => acc + inv.amountDue, 0);
+      const totalPaid = pupilInvs.reduce((acc, inv) => acc + inv.amountPaid, 0);
 
       return {
         pupil,
@@ -146,6 +151,8 @@ class LocalParentPortalService implements ParentPortalService {
         currentAverage: pupil.currentAverage,
         unpaidBalance,
         invoiceCount: pupilInvs.length,
+        totalBilled,
+        totalPaid,
       };
     });
 
@@ -156,12 +163,14 @@ class LocalParentPortalService implements ParentPortalService {
           parentPupils.some((p) => p.id === a.pupilId)
         );
 
-    const academicProgress: SubjectGradeSummary[] = pupilAssignments.map((a) => ({
-      subject: a.subject,
-      score: a.score,
-      grade: a.grade,
-      trend: "steady",
-    }));
+    const academicProgress: SubjectGradeSummary[] = pupilAssignments
+      .filter((a) => a.score !== undefined && a.grade !== undefined)
+      .map((a) => ({
+        subject: a.subject,
+        score: a.score as number,
+        grade: a.grade as string,
+        trend: "steady",
+      }));
 
     // Invoices and payments
     const pupilInvoices = selectedPupil
@@ -323,6 +332,39 @@ class LocalParentPortalService implements ParentPortalService {
       asg.submittedDate = undefined;
     }
     return { ...asg };
+  }
+
+  async downloadInvoice(invoiceId: string): Promise<{ success: boolean; filename: string; invoice?: Invoice }> {
+    const inv = this.invoices.find((i) => i.id === invoiceId);
+    if (!inv) {
+      throw new Error(`Invoice with ID ${invoiceId} not found.`);
+    }
+    // Simulate async network/generation latency
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      success: true,
+      filename: `${inv.invoiceNumber}.pdf`,
+      invoice: inv,
+    };
+  }
+
+  async downloadReceipt(paymentId: string): Promise<{ success: boolean; filename: string; payment?: Payment }> {
+    const pmt = this.payments.find((p) => p.id === paymentId);
+    if (!pmt) {
+      throw new Error(`Payment with ID ${paymentId} not found.`);
+    }
+    // Simulate async network/generation latency
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      success: true,
+      filename: `${pmt.receiptNumber}.pdf`,
+      payment: pmt,
+    };
+  }
+
+  async getAvailableTerms(): Promise<string[]> {
+    const terms = Array.from(new Set(this.invoices.map((i) => i.term)));
+    return terms;
   }
 }
 
