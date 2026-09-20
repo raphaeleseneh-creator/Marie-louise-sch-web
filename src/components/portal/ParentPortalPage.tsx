@@ -11,6 +11,7 @@ import {
   BookOpen,
   Calendar,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -64,6 +65,10 @@ import type {
   CalendarEventCategory,
   TimetableEntry,
   DayOfWeek,
+  InitiateOnlinePaymentRequest,
+  OnlinePaymentItemBreakdown,
+  OnlinePaymentSessionResponse,
+  PaymentGatewayProvider,
 } from "../../types/portal";
 
 interface ParentPortalPageProps {
@@ -3352,11 +3357,113 @@ const Fees: React.FC<{
   const [isLoadingTerm, setIsLoadingTerm] = useState(false);
   const [hasError, setHasError] = useState(false);
 
+  // Online Payment Placeholder Modal State
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [isSimulatingGateway, setIsSimulatingGateway] = useState(false);
+  const [gatewayResult, setGatewayResult] = useState<OnlinePaymentSessionResponse | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<PaymentGatewayProvider>("paystack");
+
   // Available terms derived from invoice records
   const availableTerms = useMemo(() => {
     const terms = Array.from(new Set(data.invoices.map((inv) => inv.term)));
     return terms.length > 0 ? terms : ["First Term 2026/2027"];
   }, [data.invoices]);
+
+  // Unpaid invoices across current records
+  const unpaidInvoices = useMemo(() => {
+    return data.invoices.filter((inv) => inv.balance > 0);
+  }, [data.invoices]);
+
+  // Open online payment placeholder modal
+  const handleOpenOnlinePayment = (specificInvoiceId?: string) => {
+    if (specificInvoiceId) {
+      setSelectedInvoiceIds([specificInvoiceId]);
+    } else {
+      const candidateInvoices =
+        selectedTerm === "all"
+          ? unpaidInvoices
+          : unpaidInvoices.filter((i) => i.term === selectedTerm);
+      const ids = candidateInvoices.length > 0
+        ? candidateInvoices.map((i) => i.id)
+        : unpaidInvoices.map((i) => i.id);
+      setSelectedInvoiceIds(ids);
+    }
+    setGatewayResult(null);
+    setIsPaymentModalOpen(true);
+  };
+
+  const handleToggleInvoiceSelection = (invId: string) => {
+    setSelectedInvoiceIds((prev) =>
+      prev.includes(invId) ? prev.filter((id) => id !== invId) : [...prev, invId]
+    );
+  };
+
+  const handleSelectAllUnpaid = () => {
+    setSelectedInvoiceIds(unpaidInvoices.map((i) => i.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedInvoiceIds([]);
+  };
+
+  // Selected invoices for payment breakdown
+  const selectedPaymentInvoices = useMemo(() => {
+    return data.invoices.filter((inv) => selectedInvoiceIds.includes(inv.id));
+  }, [data.invoices, selectedInvoiceIds]);
+
+  const totalAmountSelected = useMemo(() => {
+    return selectedPaymentInvoices.reduce((sum, inv) => sum + inv.balance, 0);
+  }, [selectedPaymentInvoices]);
+
+  // Handle future gateway simulation handshake
+  const handleSimulateGateway = async () => {
+    if (selectedPaymentInvoices.length === 0) return;
+    setIsSimulatingGateway(true);
+    setGatewayResult(null);
+
+    try {
+      const breakdown: OnlinePaymentItemBreakdown[] = selectedPaymentInvoices.map((inv) => {
+        const child = pupils.find((p) => p.id === inv.pupilId);
+        return {
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceReference: inv.invoiceReference,
+          pupilId: inv.pupilId,
+          pupilName: child?.fullName || "Pupil",
+          pupilClass: child?.class || "Class",
+          term: inv.term,
+          title: inv.title,
+          amountDue: inv.amountDue,
+          amountSelected: inv.balance,
+          items: inv.items || [],
+        };
+      });
+
+      const request: InitiateOnlinePaymentRequest = {
+        parentId: data.parent.id,
+        parentEmail: data.parent.email,
+        parentName: data.parent.fullName,
+        invoices: breakdown,
+        totalAmountSelected,
+        currency: "NGN",
+        suggestedProvider: selectedProvider,
+        callbackUrl: window.location.href,
+        metadata: {
+          sessionContext: isFamily ? "family_multi_child" : "individual_child",
+          selectedPupilId: activePupil?.id || "family",
+        },
+      };
+
+      const res = await portalService.prepareOnlinePaymentSession(request);
+      setGatewayResult(res);
+      onNotify?.("Gateway simulation complete. Online payment integration boundary verified.");
+    } catch {
+      onNotify?.("Simulation completed with demo placeholder response.");
+    } finally {
+      setIsSimulatingGateway(false);
+    }
+  };
 
   // Handle simulated term switching with loading effect
   const handleTermChange = (term: string) => {
@@ -3688,17 +3795,25 @@ const Fees: React.FC<{
             <ShieldCheck className="h-4 w-4 text-[#E9DB3D]" />
             <span>Official Marie Louise School Electronic Fee Billing System</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {aggregateMetrics.totalBalance > 0 && (
+              <button
+                onClick={() => handleOpenOnlinePayment()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#E9DB3D] px-3.5 py-1.5 text-xs font-extrabold text-[#29166F] shadow-xs hover:bg-[#F2E85A] transition cursor-pointer"
+              >
+                <CreditCard className="h-3.5 w-3.5" /> Pay fees online
+              </button>
+            )}
             <button
               onClick={() => onNotify?.("Statement of Account generated as PDF. Download initiated.")}
               className="inline-flex items-center gap-1.5 font-bold text-white/90 hover:text-white transition cursor-pointer"
             >
               <Download className="h-3.5 w-3.5" /> Download Full Statement
             </button>
-            <span className="text-white/30">|</span>
+            <span className="text-white/30 hidden sm:inline">|</span>
             <button
               onClick={onOpenProofModal}
-              className="inline-flex items-center gap-1.5 font-bold text-[#E9DB3D] hover:underline cursor-pointer"
+              className="inline-flex items-center gap-1.5 font-bold text-white/80 hover:text-[#E9DB3D] hover:underline cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5" /> Upload Bank Proof
             </button>
@@ -3773,13 +3888,26 @@ const Fees: React.FC<{
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => onSelectChild(child.id)}
-                    className="mt-3.5 pt-2.5 border-t border-[#EEE9F1] text-xs font-bold text-[#581C87] hover:underline flex items-center justify-between cursor-pointer w-full"
-                  >
-                    <span>View {child.firstName}&apos;s fee history</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="mt-3.5 pt-2.5 border-t border-[#EEE9F1] flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => onSelectChild(child.id)}
+                      className="text-xs font-bold text-[#581C87] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>View {child.firstName}&apos;s history</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                    {childBalance > 0 && (
+                      <button
+                        onClick={() => {
+                          const childFirstUnpaid = data.invoices.find((i) => i.pupilId === child.id && i.balance > 0);
+                          handleOpenOnlinePayment(childFirstUnpaid?.id);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md bg-[#F1ECF6] px-2 py-1 text-[11px] font-extrabold text-[#581C87] hover:bg-[#581C87] hover:text-white transition cursor-pointer"
+                      >
+                        <CreditCard className="h-3 w-3" /> Pay online
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -4186,13 +4314,22 @@ const Fees: React.FC<{
                       </button>
 
                       {inv.balance > 0 && (
-                        <button
-                          onClick={onOpenProofModal}
-                          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#581C87] px-4 text-xs font-extrabold text-white hover:bg-[#29166F] shadow-xs transition cursor-pointer"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>Submit Transfer Proof</span>
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleOpenOnlinePayment(inv.id)}
+                            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#29166F] px-4 text-xs font-extrabold text-[#E9DB3D] hover:bg-[#1C0D4F] shadow-xs transition cursor-pointer"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" />
+                            <span>Pay fees online</span>
+                          </button>
+                          <button
+                            onClick={onOpenProofModal}
+                            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#DCD5E1] bg-[#F8F6FA] px-3.5 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Submit Transfer Proof</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -4372,6 +4509,446 @@ const Fees: React.FC<{
           </div>
         </div>
       )}
+      {/* Online Payment Placeholder Modal */}
+      <AnimatePresence>
+        {isPaymentModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#160B35]/60 p-3 sm:p-4 backdrop-blur-sm overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="online-payment-modal-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-[#D8C7E8]"
+            >
+              {/* Modal Header */}
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#EEE9F1] bg-white/95 px-6 py-4 backdrop-blur-md">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-[#E9DB3D] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#29166F]">
+                      Sandbox Preview
+                    </span>
+                    <span className="text-[11px] font-bold text-[#817887]">
+                      Airtable Electronic Billing
+                    </span>
+                  </div>
+                  <h3 id="online-payment-modal-title" className="mt-1 text-lg sm:text-xl font-extrabold text-[#29166F]">
+                    Pay School Fees Online
+                  </h3>
+                </div>
+
+                <button
+                  onClick={() => setIsPaymentModalOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#E5DFE9] text-[#625B69] hover:bg-[#F8F6FA] hover:text-[#29166F] transition cursor-pointer"
+                  aria-label="Cancel and close payment modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-6">
+                {/* 1. Prominent "Online payments coming soon" state banner */}
+                <div className="rounded-2xl border-2 border-[#581C87]/20 bg-gradient-to-br from-[#FAF8FD] to-[#F1ECF6] p-5 shadow-xs">
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#581C87] text-[#E9DB3D] shadow-sm">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="rounded-md bg-[#581C87] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white">
+                          Online Payments Coming Soon (Term 2)
+                        </span>
+                        <span className="text-[11px] font-bold text-[#625B69]">
+                          Gateway Evaluation Phase
+                        </span>
+                      </div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-[#29166F]">
+                        Automated Card &amp; Direct Debit Clearing in Progress
+                      </h4>
+                      <p className="text-xs text-[#524959] leading-relaxed">
+                        Marie Louise School is preparing direct online fee settlement through licensed Nigerian payment gateways (Paystack and Flutterwave). This preview demonstrates the future checkout workflow and multi-invoice settlement. <strong>No real financial charges will be debited today.</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Security Guarantee Notice - Absolutely no card details collected */}
+                  <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-[#D97706]/25 bg-[#FFFBEB] p-3 text-xs text-[#92400E]">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-[#D97706] mt-0.5" />
+                    <p className="leading-snug">
+                      <strong>Security Policy:</strong> To protect our families, Marie Louise School will <u>never</u> request your 16-digit debit card number, CVV code, card PIN, online banking password, or OTP anywhere on this portal.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Unpaid Invoice Selection (with Multi-Invoice support in Family Overview) */}
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#581C87]">
+                        {isFamily ? "Select Unpaid Invoices Across Children" : "Select Invoice to Settle"}
+                      </h4>
+                      <p className="text-xs text-[#817887]">
+                        {isFamily
+                          ? "Select one or multiple child invoices to combine in this payment session."
+                          : "Choose which outstanding term charges to settle."}
+                      </p>
+                    </div>
+
+                    {unpaidInvoices.length > 1 && (
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllUnpaid}
+                          className="text-[11px] font-extrabold text-[#581C87] hover:underline cursor-pointer"
+                        >
+                          Select All ({unpaidInvoices.length})
+                        </button>
+                        <span className="text-[#D1C7D8]">&bull;</span>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAll}
+                          className="text-[11px] font-bold text-[#817887] hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {unpaidInvoices.length > 0 ? (
+                    <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                      {unpaidInvoices.map((inv) => {
+                        const child = pupils.find((p) => p.id === inv.pupilId);
+                        const isSelected = selectedInvoiceIds.includes(inv.id);
+
+                        return (
+                          <div
+                            key={inv.id}
+                            onClick={() => handleToggleInvoiceSelection(inv.id)}
+                            className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition cursor-pointer ${
+                              isSelected
+                                ? "border-[#581C87] bg-[#F9F7FB] shadow-xs"
+                                : "border-[#E5DFE9] bg-white hover:border-[#D1C7D8]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Custom accessible checkbox */}
+                              <div
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
+                                  isSelected
+                                    ? "border-[#581C87] bg-[#581C87] text-white"
+                                    : "border-[#C5BACD] bg-white"
+                                }`}
+                              >
+                                {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                              </div>
+
+                              <div className="space-y-0.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {child && (
+                                    <span className="rounded bg-[#E8E2ED] px-1.5 py-0.2 text-[10px] font-extrabold text-[#29166F]">
+                                      {child.fullName} ({child.class})
+                                    </span>
+                                  )}
+                                  <span className="font-mono text-xs font-extrabold text-[#581C87]">
+                                    {inv.invoiceReference || inv.invoiceNumber}
+                                  </span>
+                                </div>
+                                <p className="text-xs font-bold text-[#29166F] line-clamp-1">
+                                  {inv.title}
+                                </p>
+                                <p className="text-[11px] text-[#817887]">
+                                  {inv.term} &bull; Due {inv.dueDate}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-[10px] font-bold uppercase text-[#817887]">
+                                Amount Due
+                              </span>
+                              <p className="text-sm font-extrabold text-[#B91C1C]">
+                                {formatNaira(inv.balance)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-[#E5DFE9] bg-[#FAF8FC] p-4 text-center text-xs text-[#817887]">
+                      No outstanding invoices found. All fee bills for this account are settled.
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Payment Summary with Breakdown, Amount Due, and Amount Selected */}
+                {selectedPaymentInvoices.length > 0 ? (
+                  <div className="rounded-2xl border border-[#E5DFE9] bg-white p-4 sm:p-5 shadow-xs space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EEE9F1] pb-3">
+                      <div>
+                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#29166F]">
+                          Payment Summary
+                        </h4>
+                        <p className="text-xs text-[#817887]">
+                          {selectedPaymentInvoices.length} invoice{selectedPaymentInvoices.length === 1 ? "" : "s"} selected
+                          {isFamily && ` across linked pupils`}
+                        </p>
+                      </div>
+
+                      <span className="rounded-full bg-[#E5F7ED] px-2.5 py-0.5 text-xs font-extrabold text-[#087A50]">
+                        Ready to preview
+                      </span>
+                    </div>
+
+                    {/* Breakdown by Selected Invoices */}
+                    <div className="space-y-3">
+                      {selectedPaymentInvoices.map((inv) => {
+                        const child = pupils.find((p) => p.id === inv.pupilId);
+                        return (
+                          <div key={inv.id} className="rounded-xl bg-[#FAF8FC] border border-[#EEE9F1] p-3 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-[#EEE9F1]">
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#581C87] text-[10px] font-extrabold text-white">
+                                  {child?.avatarInitials || "P"}
+                                </div>
+                                <span className="font-extrabold text-[#29166F]">
+                                  {child?.fullName} ({child?.class})
+                                </span>
+                              </div>
+                              <span className="font-mono text-[11px] font-bold text-[#581C87]">
+                                {inv.invoiceReference || inv.invoiceNumber}
+                              </span>
+                            </div>
+
+                            {/* Itemized Charge Breakdown */}
+                            {inv.items && inv.items.length > 0 ? (
+                              <div className="space-y-1.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-[#817887]">
+                                  Charge Breakdown:
+                                </span>
+                                <div className="grid gap-1 sm:grid-cols-2">
+                                  {inv.items.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1 text-[11px] border border-[#EFEBF2]"
+                                    >
+                                      <span className="text-[#625B69] truncate">{item.description}</span>
+                                      <strong className="text-[#29166F] shrink-0">{formatNaira(item.amount, false)}</strong>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex justify-between text-[#625B69]">
+                                <span>{inv.title}</span>
+                                <strong>{formatNaira(inv.amountDue)}</strong>
+                              </div>
+                            )}
+
+                            <div className="mt-2.5 pt-2 border-t border-[#EEE9F1] flex items-center justify-between text-xs">
+                              <span className="text-[#817887]">Total Outstanding for this Invoice:</span>
+                              <strong className="text-[#29166F]">{formatNaira(inv.balance)}</strong>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Grand Total Amount Selected Card */}
+                    <div className="rounded-xl bg-[#29166F] text-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#E9DB3D]">
+                          Total Amount Selected for Payment
+                        </span>
+                        <p className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                          {formatNaira(totalAmountSelected)}
+                        </p>
+                        <p className="text-[11px] text-white/70">
+                          Sum of {selectedPaymentInvoices.length} selected fee obligation{selectedPaymentInvoices.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+
+                      <div className="sm:text-right">
+                        <span className="text-[10px] font-bold uppercase text-white/60">Payer Account</span>
+                        <p className="text-xs font-extrabold text-white">{data.parent.fullName}</p>
+                        <p className="text-[11px] text-white/70">{data.parent.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-xs text-amber-800">
+                    Please select at least one unpaid invoice above to preview the payment breakdown and amount.
+                  </div>
+                )}
+
+                {/* 4. Future Payment Provider Boundary Preview */}
+                <div className="rounded-2xl border border-[#DCD5E1] bg-[#FAF8FC] p-4 sm:p-5 space-y-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <LockKeyhole className="h-4 w-4 text-[#581C87]" />
+                      <h4 className="font-extrabold text-[#29166F]">
+                        Future Payment Provider Integration Boundary
+                      </h4>
+                    </div>
+                    <span className="rounded-full bg-[#E8E2ED] px-2 py-0.5 text-[10px] font-extrabold text-[#581C87]">
+                      Server API Hook Ready
+                    </span>
+                  </div>
+
+                  <p className="text-[#625B69] leading-relaxed">
+                    When live gateway keys are connected to our secure server backend, checkout will be handled directly through licensed providers. Select your preferred provider below to test the integration handshake contract:
+                  </p>
+
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProvider("paystack")}
+                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        selectedProvider === "paystack"
+                          ? "border-[#581C87] bg-white ring-2 ring-[#581C87]/15 shadow-xs"
+                          : "border-[#E5DFE9] bg-white/60 hover:bg-white"
+                      }`}
+                    >
+                      <CreditCard className="h-5 w-5 text-[#581C87] shrink-0 mt-0.5" />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <strong className="text-[#29166F] font-extrabold">Paystack Gateway</strong>
+                          {selectedProvider === "paystack" && (
+                            <span className="text-[9px] bg-[#E9DB3D] text-[#29166F] font-extrabold px-1.5 py-0.2 rounded">
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#817887] mt-0.5">
+                          Debit Cards (Mastercard, Visa, Verve), USSD, Direct Bank Transfer &amp; Virtual NUBAN.
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProvider("flutterwave")}
+                      className={`flex items-start gap-3 rounded-xl border p-3 text-left transition cursor-pointer ${
+                        selectedProvider === "flutterwave"
+                          ? "border-[#581C87] bg-white ring-2 ring-[#581C87]/15 shadow-xs"
+                          : "border-[#E5DFE9] bg-white/60 hover:bg-white"
+                      }`}
+                    >
+                      <Sparkles className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <strong className="text-[#29166F] font-extrabold">Flutterwave Checkout</strong>
+                          {selectedProvider === "flutterwave" && (
+                            <span className="text-[9px] bg-[#E9DB3D] text-[#29166F] font-extrabold px-1.5 py-0.2 rounded">
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#817887] mt-0.5">
+                          Cards, Bank Accounts, Mobile Money, and Diaspora International Payments.
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Gateway simulation result display */}
+                  {gatewayResult && (
+                    <div className="mt-3 rounded-xl border border-[#581C87]/30 bg-[#F1ECF6] p-3 text-xs text-[#29166F]">
+                      <div className="flex items-center gap-2 font-extrabold">
+                        <CheckCircle2 className="h-4 w-4 text-[#087A50]" />
+                        <span>Integration Handshake Simulated Successfully</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#524959]">
+                        {gatewayResult.message}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold text-[#581C87]">
+                        <span>Status: {gatewayResult.status}</span> &bull;
+                        <span>Session Ref: {gatewayResult.reference}</span> &bull;
+                        <span>Target: {gatewayResult.provider.toUpperCase()}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Current Payment Instructions Reminder */}
+                <div className="rounded-xl border border-[#EEE9F1] bg-[#FBF9FD] p-4 text-xs">
+                  <h4 className="font-extrabold text-[#29166F] flex items-center gap-1.5">
+                    <Info className="h-3.5 w-3.5 text-[#581C87]" />
+                    <span>How to settle fees right now:</span>
+                  </h4>
+                  <p className="mt-1 text-[#625B69]">
+                    Please make a direct electronic transfer to the school&apos;s registered bursary account, then click <strong>&ldquo;Submit Transfer Proof&rdquo;</strong> to attach your deposit reference:
+                  </p>
+                  <div className="mt-2.5 rounded-lg border border-[#E5DFE9] bg-white p-3 font-mono text-[11px] space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-[#817887]">Bank:</span>
+                      <strong className="text-[#29166F]">Zenith Bank PLC</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#817887]">Account Name:</span>
+                      <strong className="text-[#29166F]">Marie Louise School - Tuition &amp; Billing</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#817887]">Account Number:</span>
+                      <strong className="text-[#581C87] text-xs">1012345678</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer with Cancel and Return-to-Fees actions */}
+              <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-[#EEE9F1] bg-white/95 px-6 py-4 backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={() => setIsPaymentModalOpen(false)}
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#DCD5E1] bg-white px-4 text-xs font-extrabold text-[#625B69] hover:bg-[#F8F6FA] hover:text-[#29166F] transition cursor-pointer"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+                  Cancel &amp; Return to Fees
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPaymentModalOpen(false);
+                      onOpenProofModal();
+                    }}
+                    className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#581C87] bg-[#F8F6FA] px-4 text-xs font-extrabold text-[#581C87] hover:bg-[#F1ECF6] transition cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Submit Offline Transfer Proof
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSimulateGateway}
+                    disabled={isSimulatingGateway || selectedInvoiceIds.length === 0}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#29166F] px-5 text-xs font-extrabold text-[#E9DB3D] hover:bg-[#1C0D4F] disabled:opacity-50 disabled:pointer-events-none transition cursor-pointer shadow-sm"
+                  >
+                    {isSimulatingGateway ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Connecting to Gateway Sandbox...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="h-3.5 w-3.5" />
+                        <span>Simulate Gateway Handshake (Coming Soon)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -15,6 +15,8 @@ import type {
   ParentDashboardData,
   CreateAbsenceReportInput,
   CreatePaymentProofInput,
+  InitiateOnlinePaymentRequest,
+  OnlinePaymentSessionResponse,
 } from "../types/portal";
 
 import {
@@ -74,6 +76,9 @@ export interface ParentPortalService {
   downloadInvoice(invoiceId: string): Promise<{ success: boolean; filename: string; invoice?: Invoice }>;
   downloadReceipt(paymentId: string): Promise<{ success: boolean; filename: string; payment?: Payment }>;
   getAvailableTerms(): Promise<string[]>;
+  prepareOnlinePaymentSession(
+    request: InitiateOnlinePaymentRequest
+  ): Promise<OnlinePaymentSessionResponse>;
 }
 
 /**
@@ -375,6 +380,33 @@ class LocalParentPortalService implements ParentPortalService {
   async getAvailableTerms(): Promise<string[]> {
     const terms = Array.from(new Set(this.invoices.map((i) => i.term)));
     return terms;
+  }
+
+  /**
+   * Future Integration Boundary:
+   * When integrating Paystack, Flutterwave, or another licensed Nigerian provider:
+   * 1. This method calls your backend server endpoint (e.g. POST /api/portal/payments/initialize).
+   * 2. The backend generates a cryptographically signed checkout reference and calls the provider API with server secret keys.
+   * 3. The backend returns the secure checkout authorization URL or popup access code.
+   * 4. The frontend pops up the payment modal or redirects to the gateway.
+   * 5. The payment provider webhook verifies the payment and updates the Airtable invoice status securely.
+   *
+   * SECURITY NOTICE:
+   * No card numbers, bank credentials, PINs, or OTPs are ever handled on the frontend or stored in client code.
+   */
+  async prepareOnlinePaymentSession(
+    request: InitiateOnlinePaymentRequest
+  ): Promise<OnlinePaymentSessionResponse> {
+    // Simulated network preparation latency
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    return {
+      status: "coming_soon",
+      message:
+        "Online automated fee settlement (Paystack / Flutterwave) is scheduled for activation in Term 2. In preview mode, direct electronic card transactions are disabled.",
+      provider: request.suggestedProvider || "paystack",
+      reference: `MLSP-PREVIEW-${Date.now()}`,
+    };
   }
 }
 

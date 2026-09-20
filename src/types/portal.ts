@@ -329,3 +329,46 @@ export interface CreatePaymentProofInput {
   receiptFileUrl?: string;
   notes?: string;
 }
+
+/**
+ * 12. Online Payment Gateway Integration Boundary (Future Paystack / Flutterwave)
+ * Note: No live credentials or direct card details are handled on the frontend.
+ * This represents the payload structure for initiating a secure server-to-server
+ * checkout session once a payment gateway is activated.
+ */
+export type PaymentGatewayProvider = "paystack" | "flutterwave" | "remita";
+
+export interface OnlinePaymentItemBreakdown {
+  invoiceId: AirtableRecordId;
+  invoiceNumber: string;
+  invoiceReference?: string;
+  pupilId: AirtableRecordId;
+  pupilName: string;
+  pupilClass: string;
+  term: string;
+  title: string;
+  amountDue: number;
+  amountSelected: number;
+  items: InvoiceItem[];
+}
+
+export interface InitiateOnlinePaymentRequest {
+  parentId: AirtableRecordId;
+  parentEmail: string;
+  parentName: string;
+  invoices: OnlinePaymentItemBreakdown[];
+  totalAmountSelected: number;
+  currency: "NGN";
+  suggestedProvider?: PaymentGatewayProvider;
+  callbackUrl?: string;
+  metadata?: Record<string, string | number>;
+}
+
+export interface OnlinePaymentSessionResponse {
+  status: "coming_soon" | "demo_placeholder" | "ready";
+  message: string;
+  provider: PaymentGatewayProvider;
+  reference?: string;
+  authorizationUrl?: string;
+}
+
