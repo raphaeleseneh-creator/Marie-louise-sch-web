@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  ArrowUpDown,
   Bell,
   BookMarked,
   BookOpen,
@@ -25,7 +24,6 @@ import {
   EyeOff,
   FileCheck2,
   FileText,
-  Filter,
   GraduationCap,
   HelpCircle,
   Home,
@@ -46,7 +44,6 @@ import {
   Tag,
   UserRound,
   Users,
-  Utensils,
   X,
 } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
@@ -59,18 +56,12 @@ import type {
   AbsenceReport,
   AbsenceStatus,
   Assignment,
-  Pupil,
   Invoice,
   Payment,
   FeeCategory,
-  InvoiceItem,
   InvoiceStatus,
-  PaymentProof,
-  PaymentProofStatus,
-  PaymentProofMethod,
   CalendarEvent,
   CalendarEventCategory,
-  TimetableEntry,
   DayOfWeek,
   InitiateOnlinePaymentRequest,
   OnlinePaymentItemBreakdown,
@@ -94,8 +85,14 @@ const portalNavigation: { id: PortalView; label: string; icon: React.ElementType
 ];
 
 export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToSchool }) => {
+  const getInitialView = (): PortalView => {
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    const valid = portalNavigation.some((item) => item.id === hash);
+    return valid ? (hash as PortalView) : "overview";
+  };
+
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [activeView, setActiveView] = useState<PortalView>("overview");
+  const [activeView, setActiveView] = useState<PortalView>(getInitialView);
   const [showPassword, setShowPassword] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isPupilMenuOpen, setIsPupilMenuOpen] = useState(false);
@@ -112,6 +109,42 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
   const selectorButtonRef = useRef<HTMLButtonElement>(null);
   const selectorDropdownRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+
+  const handleSelectView = (view: PortalView) => {
+    setActiveView(view);
+    if (window.location.hash !== `#${view}`) {
+      window.history.pushState(null, "", `#${view}`);
+    }
+  };
+
+  // Sync activeView with browser back/forward and hash changes
+  useEffect(() => {
+    const handleHashSync = () => {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      const valid = portalNavigation.some((item) => item.id === hash);
+      if (valid) {
+        setActiveView(hash as PortalView);
+      } else if (!hash) {
+        setActiveView("overview");
+      }
+    };
+    window.addEventListener("hashchange", handleHashSync);
+    window.addEventListener("popstate", handleHashSync);
+    return () => {
+      window.removeEventListener("hashchange", handleHashSync);
+      window.removeEventListener("popstate", handleHashSync);
+    };
+  }, []);
+
+  const handleBackToSchool = () => {
+    window.history.pushState({}, "", "/");
+    onBackToSchool();
+  };
+
+  const handleSignOut = () => {
+    window.history.pushState({}, "", "/parent-portal");
+    setIsSignedIn(false);
+  };
 
   // Load portal data via the service layer
   const loadPortalData = async (targetId: string = activePupilId) => {
@@ -460,7 +493,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setActiveView("notices")}
+              onClick={() => handleSelectView("notices")}
               className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-[#E5DFE9] text-[#4C4652] hover:bg-[#F7F4FA] cursor-pointer"
               aria-label="Notifications bulletin"
             >
@@ -617,7 +650,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
 
       <div className="mx-auto grid max-w-[1500px] lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="sticky top-[72px] hidden h-[calc(100dvh-72px)] border-r border-[#E5DFE9] bg-white px-4 py-6 lg:flex lg:flex-col">
-          <PortalMenu activeView={activeView} onSelect={setActiveView} />
+          <PortalMenu activeView={activeView} onSelect={handleSelectView} />
 
           {/* Quick Switcher in Sidebar */}
           <div className="my-6 rounded-xl border border-[#EEE9F1] bg-[#FAF8FC] p-3">
@@ -649,13 +682,13 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
 
           <div className="mt-auto space-y-1 border-t border-[#EEE9F1] pt-4">
             <button
-              onClick={onBackToSchool}
+              onClick={handleBackToSchool}
               className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#625B69] hover:bg-[#F7F4FA] hover:text-[#29166F] cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4" /> School website
             </button>
             <button
-              onClick={() => setIsSignedIn(false)}
+              onClick={handleSignOut}
               className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#625B69] hover:bg-[#F7F4FA] hover:text-[#29166F] cursor-pointer"
             >
               <LogOut className="h-4 w-4" /> Sign out
@@ -706,12 +739,12 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                   <FamilyOverview
                     data={dashboardData}
                     onSelectChild={handleSwitchPupil}
-                    onNavigate={setActiveView}
+                    onNavigate={handleSelectView}
                   />
                 ) : (
                   <PupilOverview
                     data={dashboardData}
-                    onNavigate={setActiveView}
+                    onNavigate={handleSelectView}
                     onSwitchToFamily={() => handleSwitchPupil("family")}
                   />
                 )
@@ -728,7 +761,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               {activeView === "reports" && dashboardData ? (
                 <Reports
                   data={dashboardData}
-                  onOpenAbsenceModal={() => setActiveView("requests")}
+                  onOpenAbsenceModal={() => handleSelectView("requests")}
                   onSelectChild={handleSwitchPupil}
                 />
               ) : null}
@@ -737,7 +770,7 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
                 <CalendarView
                   data={dashboardData}
                   onSelectChild={handleSwitchPupil}
-                  onNavigate={setActiveView}
+                  onNavigate={handleSelectView}
                 />
               ) : null}
 
@@ -861,21 +894,21 @@ export const ParentPortalPage: React.FC<ParentPortalPageProps> = ({ onBackToScho
               <PortalMenu
                 activeView={activeView}
                 onSelect={(view) => {
-                  setActiveView(view);
+                  handleSelectView(view);
                   setIsMenuOpen(false);
                 }}
               />
 
               <div className="mt-auto space-y-2 border-t border-[#EEE9F1] pt-4">
                 <button
-                  onClick={onBackToSchool}
+                  onClick={handleBackToSchool}
                   className="flex min-h-11 w-full items-center gap-3 px-3 text-sm font-bold text-[#625B69] cursor-pointer"
                 >
                   <ArrowLeft className="h-4 w-4" /> School website
                 </button>
                 <button
                   onClick={() => {
-                    setIsSignedIn(false);
+                    handleSignOut();
                     setIsMenuOpen(false);
                   }}
                   className="flex min-h-11 w-full items-center gap-3 px-3 text-sm font-bold text-[#625B69] cursor-pointer"
@@ -2348,7 +2381,6 @@ const CalendarView: React.FC<{
 
     // Current month days
     for (let day = 1; day <= totalDaysInMonth; day++) {
-      const thisDate = new Date(year, month, day);
       const dateString = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const isToday = year === 2026 && month === 8 && day === 20; // 20 Sep 2026
       const evs = filteredEvents.filter((e) => {
@@ -2617,8 +2649,6 @@ const CalendarView: React.FC<{
           {/* Calendar Grid Days */}
           <div className="grid grid-cols-7 divide-x divide-y divide-[#EEE9F1]">
             {calendarGrid.map((cell, idx) => {
-              const hasEvents = cell.events.length > 0;
-
               return (
                 <div
                   key={`${cell.dateString}-${idx}`}

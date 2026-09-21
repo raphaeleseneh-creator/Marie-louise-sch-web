@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import {
   AlertCircle,
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -11,13 +10,9 @@ import {
   Copy,
   FileCheck2,
   FileText,
-  HelpCircle,
   Image as ImageIcon,
   Info,
-  Paperclip,
-  Plus,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   UploadCloud,
   X,
@@ -26,9 +21,6 @@ import type {
   ParentDashboardData,
   PaymentProof,
   PaymentProofMethod,
-  AirtableRecordId,
-  Invoice,
-  Pupil,
 } from "../../types/portal";
 import { portalService } from "../../services/portalService";
 
@@ -88,7 +80,6 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
   const [notes, setNotes] = useState<string>("");
 
   // File upload states
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>("");
   const [selectedFileSize, setSelectedFileSize] = useState<string>("");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -215,7 +206,6 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
     }
 
     // Valid file
-    setSelectedFile(file);
     setSelectedFileName(file.name);
     setSelectedFileSize(formatFileSize(file.size));
 
@@ -257,7 +247,6 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
   };
 
   const handleRemoveFile = () => {
-    setSelectedFile(null);
     setSelectedFileName("");
     setSelectedFileSize("");
     setUploadProgress(0);
@@ -992,7 +981,6 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
                 type="button"
                 onClick={() => {
                   setStep(1);
-                  setSelectedFile(null);
                   setSelectedFileName("");
                   setSelectedFileSize("");
                   setTransactionRef("");

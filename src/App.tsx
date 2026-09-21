@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "./components/layout/Header";
 import { Footer } from "./components/layout/Footer";
 import { Hero } from "./components/home/Hero";
@@ -19,29 +19,36 @@ import { BookTourModal } from "./components/modals/BookTourModal";
 import type { NavTab } from "./types";
 import type { SchoolClass } from "./data/school";
 
+const isPortalPath = () => {
+  const path = window.location.pathname.replace(/\/$/, "");
+  return path === "/parent-portal";
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("home");
   const [isAdmissionOpen, setIsAdmissionOpen] = useState(false);
-  const [isParentPortalPage, setIsParentPortalPage] = useState(
-    () => window.location.pathname === "/parent-portal"
-  );
+  const [isParentPortalPage, setIsParentPortalPage] = useState(isPortalPath);
   const [isBookTourOpen, setIsBookTourOpen] = useState(false);
   const [selectedClassForAdmission, setSelectedClassForAdmission] = useState<SchoolClass | undefined>();
 
   useEffect(() => {
-    const handlePopState = () => setIsParentPortalPage(window.location.pathname === "/parent-portal");
+    const handlePopState = () => setIsParentPortalPage(isPortalPath());
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   const openParentPortal = () => {
-    window.history.pushState({}, "", "/parent-portal");
+    if (window.location.pathname.replace(/\/$/, "") !== "/parent-portal") {
+      window.history.pushState({}, "", "/parent-portal");
+    }
     window.scrollTo({ top: 0 });
     setIsParentPortalPage(true);
   };
 
   const closeParentPortal = () => {
-    window.history.pushState({}, "", "/");
+    if (window.location.pathname !== "/" || window.location.hash) {
+      window.history.pushState({}, "", "/");
+    }
     window.scrollTo({ top: 0 });
     setIsParentPortalPage(false);
   };
