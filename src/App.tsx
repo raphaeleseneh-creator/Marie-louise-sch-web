@@ -15,6 +15,7 @@ import { ParentPortalSection } from "./components/home/ParentPortalSection";
 import { FinalCTA } from "./components/home/FinalCTA";
 import { AdmissionModal } from "./components/modals/AdmissionModal";
 import { ParentPortalPage } from "./components/portal/ParentPortalPage";
+import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { BookTourModal } from "./components/modals/BookTourModal";
 import type { NavTab } from "./types";
 import type { SchoolClass } from "./data/school";
@@ -25,11 +26,17 @@ export default function App() {
   const [isParentPortalPage, setIsParentPortalPage] = useState(
     () => window.location.pathname === "/parent-portal"
   );
+  const [isAdminPage, setIsAdminPage] = useState(
+    () => window.location.pathname === "/admin"
+  );
   const [isBookTourOpen, setIsBookTourOpen] = useState(false);
   const [selectedClassForAdmission, setSelectedClassForAdmission] = useState<SchoolClass | undefined>();
 
   useEffect(() => {
-    const handlePopState = () => setIsParentPortalPage(window.location.pathname === "/parent-portal");
+    const handlePopState = () => {
+      setIsParentPortalPage(window.location.pathname === "/parent-portal");
+      setIsAdminPage(window.location.pathname === "/admin");
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
@@ -44,6 +51,12 @@ export default function App() {
     window.history.pushState({}, "", "/");
     window.scrollTo({ top: 0 });
     setIsParentPortalPage(false);
+  };
+
+  const closeAdmin = () => {
+    window.history.pushState({}, "", "/");
+    window.scrollTo({ top: 0 });
+    setIsAdminPage(false);
   };
 
   // Smooth Navigation Handler
@@ -65,7 +78,7 @@ export default function App() {
       const el = document.getElementById("news-events");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "contact") {
-      const el = document.getElementById("admissions");
+      const el = document.getElementById("contact");
       if (el) el.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "parent-portal") {
       openParentPortal();
@@ -74,6 +87,10 @@ export default function App() {
 
   if (isParentPortalPage) {
     return <ParentPortalPage onBackToSchool={closeParentPortal} />;
+  }
+
+  if (isAdminPage) {
+    return <AdminDashboard onBackToSchool={closeAdmin} />;
   }
 
   const handleOpenAdmissions = (preselectedClass?: SchoolClass) => {
@@ -139,7 +156,7 @@ export default function App() {
         {/* 12. Final Emotional Call to Action */}
         <FinalCTA
           onExploreAdmissions={() => handleOpenAdmissions()}
-          onContactSchool={() => setIsBookTourOpen(true)}
+          onContactSchool={() => handleNavigate("contact")}
         />
       </main>
 
@@ -151,14 +168,14 @@ export default function App() {
       />
 
       {/* Interactive Modals */}
-      <AdmissionModal
+      {isAdmissionOpen ? <AdmissionModal
         isOpen={isAdmissionOpen}
         onClose={() => {
           setIsAdmissionOpen(false);
           setSelectedClassForAdmission(undefined);
         }}
         preselectedClass={selectedClassForAdmission}
-      />
+      /> : null}
 
       <BookTourModal
         isOpen={isBookTourOpen}

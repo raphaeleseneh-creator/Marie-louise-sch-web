@@ -54,15 +54,15 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className={`fixed top-0 z-40 bg-white/95 transition-[padding,box-shadow,background-color] duration-300 ${
+        className={`fixed top-0 z-40 bg-white/95 py-2.5 transition-[padding,box-shadow,background-color] duration-300 ${
           isScrolled
-            ? "py-2 shadow-[0_10px_35px_rgba(41,22,111,0.08)] backdrop-blur-xl"
-            : "py-3.5"
+            ? "shadow-[0_10px_35px_rgba(41,22,111,0.08)] backdrop-blur-xl md:py-2"
+            : "md:py-3.5"
         }`}
         style={{ left: 0, right: 0 }}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 sm:px-6 lg:px-8">
-          <SchoolLogo variant="light" onClick={() => handleNavClick("home")} />
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 md:gap-5 lg:px-8">
+          <SchoolLogo variant="light" compactOnMobile onClick={() => handleNavClick("home")} />
 
           <nav
             className="hidden items-center gap-0.5 rounded-xl border border-[#E8E2ED] bg-[#F7F4FA]/70 p-1 lg:flex"
@@ -118,18 +118,10 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2 md:hidden">
-            <button
-              onClick={onOpenParentPortal}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[#DED4E8] bg-[#F7F4FA] px-3 text-[11px] font-bold text-[#29166F]"
-              aria-label="Open Parent Portal"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-[#581C87]" />
-              <span>Portal</span>
-            </button>
+          <div className="shrink-0 md:hidden">
             <button
               onClick={() => setIsMobileMenuOpen((open) => !open)}
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-[#29166F] transition-colors hover:bg-[#F7F4FA]"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-[#29166F] transition-colors hover:bg-[#F7F4FA]"
               aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={isMobileMenuOpen}
             >
@@ -152,8 +144,8 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setIsMobileMenuOpen(false)}
           >
             <motion.aside
-              className="absolute bottom-0 right-0 flex flex-col bg-white px-5 pb-6 pt-7 shadow-[-18px_0_60px_rgba(28,12,66,0.18)]"
-              style={{ top: 72, width: "min(88vw, 390px)" }}
+              className="absolute bottom-0 right-0 top-16 flex flex-col overflow-y-auto bg-white px-5 pb-6 pt-7 shadow-[-18px_0_60px_rgba(28,12,66,0.18)]"
+              style={{ width: "min(88vw, 390px)" }}
               initial={reduceMotion ? false : { x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}

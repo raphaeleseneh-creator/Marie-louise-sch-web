@@ -67,9 +67,9 @@ export const schoolConfig: SchoolConfig = {
   city: "Lagos",
   state: "Lagos State",
   country: "Nigeria",
-  phone: "+234 (0) 803 300 1234",
-  email: "admissions@marielouiseschool.com",
-  address: "Surulere, Lagos State, Nigeria",
+  phone: "+234 802 318 6976",
+  email: "marielouiseschoollagos@gmail.com",
+  address: "41 Olatilewa Street, Surulere, Lagos",
 };
 
 export interface SchoolValue {

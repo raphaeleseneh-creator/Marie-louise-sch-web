@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { SCHOOL_CLASSES, type SchoolClass, schoolConfig } from "../../data/school";
-import { X, Calendar, CheckCircle2, Clock, MapPin, ArrowRight } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { SCHOOL_CLASSES, schoolConfig, type SchoolClass } from "../../data/school";
+import { X, CheckCircle2, ArrowRight } from "lucide-react";
 import type { VisitTourFormData } from "../../types";
+import { SchoolDialog } from "./SchoolDialog";
 
 interface BookTourModalProps {
   isOpen: boolean;
@@ -22,27 +23,52 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
   });
 
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [reference, setReference] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const saving = useRef(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitted(true);
+    if (saving.current || isSubmitted) return;
+    saving.current = true;
+    setIsSaving(true);
+    setSubmitError("");
+    try {
+      const response = await fetch("/api/tours", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || "Your tour request could not be saved. Please try again.");
+      if (!result?.id || !result?.reference) throw new Error("The school did not return a tour reference. Please contact the office before resubmitting.");
+      setReference(result.reference);
+      setIsSubmitted(true);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Unable to reach the school. Please try again.");
+    } finally {
+      saving.current = false;
+      setIsSaving(false);
+    }
   };
 
   const handleClose = () => {
+    if (saving.current) return;
     setIsSubmitted(false);
+    setSubmitError("");
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6">
-      <div
-        className="relative bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-[#E8E2ED]"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <SchoolDialog label="Request a school visit" onClose={handleClose} className="max-w-lg p-6 sm:p-8">
         <button
           onClick={handleClose}
+          disabled={isSaving}
+          aria-label="Close dialog"
           className="absolute top-5 right-5 w-8 h-8 rounded-full bg-[#F7F4FA] hover:bg-[#EDE8F5] text-[#29166F] flex items-center justify-center transition-colors cursor-pointer"
         >
           <X className="w-4 h-4" />
@@ -56,8 +82,9 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
             <h3 className="text-2xl font-extrabold text-[#29166F] mb-2">
               Tour Request Received
             </h3>
+            <p className="mb-4 text-sm font-bold text-[#581C87]">Reference: {reference}</p>
             <p className="text-xs sm:text-sm text-[#625B69] mb-6">
-              Thank you, <strong>{formData.fullName}</strong>. Our Admissions team will contact you shortly to confirm your tour appointment at our Surulere campus for <strong>{formData.interestedClass}</strong>.
+              Thank you, <strong>{formData.fullName}</strong>. Wait for the admissions office to confirm a date before visiting. If your preferred date is approaching, <a className="font-bold underline" href={`tel:${schoolConfig.phone.replace(/[^+\d]/g, "")}`}>call the school</a> and quote your reference.
             </p>
             <button
               onClick={handleClose}
@@ -81,6 +108,7 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <fieldset disabled={isSaving} className="space-y-4 border-0 p-0 m-0 min-w-0" aria-busy={isSaving}>
               <div>
                 <label className="block text-xs font-bold text-[#27232D] mb-1">
                   Parent / Guardian Name *
@@ -187,15 +215,17 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
 
               <button
                 type="submit"
+                disabled={isSaving}
                 className="w-full py-3.5 rounded-xl bg-[#581C87] text-white font-bold text-xs sm:text-sm hover:bg-[#29166F] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Confirm School Visit Request</span>
+                <span>{isSaving ? "Saving tour request…" : "Request a visit"}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
+              {submitError ? <p role="alert" className="text-sm font-semibold text-red-700">{submitError}</p> : null}
+              </fieldset>
             </form>
           </div>
         )}
-      </div>
-    </div>
+    </SchoolDialog>
   );
 };

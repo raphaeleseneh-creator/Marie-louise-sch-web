@@ -3,12 +3,14 @@ import React from "react";
 interface SchoolLogoProps {
   variant?: "light" | "dark" | "compact";
   className?: string;
+  compactOnMobile?: boolean;
   onClick?: () => void;
 }
 
 export const SchoolLogo: React.FC<SchoolLogoProps> = ({
   variant = "light",
   className = "",
+  compactOnMobile = false,
   onClick,
 }) => {
   const isDark = variant === "dark";
@@ -16,12 +18,12 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
   return (
     <div
       onClick={onClick}
-      className={`inline-flex items-center gap-3 select-none cursor-pointer transition-opacity hover:opacity-95 ${className}`}
+      className={`inline-flex items-center ${compactOnMobile ? "gap-2 md:gap-3" : "gap-3"} select-none cursor-pointer transition-opacity hover:opacity-95 ${className}`}
     >
       <img
         src="/images/school/marie-louise-crest.jpg"
         alt="Marie Louise School crest"
-        className="h-12 w-9 sm:h-14 sm:w-11 flex-shrink-0 object-contain mix-blend-multiply"
+        className={`${compactOnMobile ? "h-10 w-8 md:h-14 md:w-11" : "h-12 w-9 sm:h-14 sm:w-11"} shrink-0 object-contain mix-blend-multiply`}
         width="477"
         height="631"
       />
@@ -44,7 +46,7 @@ export const SchoolLogo: React.FC<SchoolLogoProps> = ({
             Surulere, Lagos
           </span>
           <span
-            className={`text-[9px] px-1.5 py-0.5 rounded-xs font-medium tracking-wide ${
+            className={`${compactOnMobile ? "hidden md:inline" : ""} text-[9px] px-1.5 py-0.5 rounded-xs font-medium tracking-wide ${
               isDark
                 ? "bg-white/10 text-white/90"
                 : "bg-[#F7F4FA] text-[#625B69] border border-[#E8E2ED]"

@@ -1,0 +1,10 @@
+{
+  "sessions": [
+    { "id": "rec5PepFqZRXwciiP", "name": "2025/2026 Academic Year", "code": "2025-26" }
+  ],
+  "terms": [
+    { "id": "reccR4ZBVMQoLeZbn", "name": "Term 1", "code": "T1", "sessionId": "rec5PepFqZRXwciiP", "start": "2026-09-14", "end": "2026-12-11" },
+    { "id": "recd5bTp6SLqAWrDu", "name": "Term 2", "code": "T2", "sessionId": null, "start": "2026-01-05", "end": "2026-04-10" },
+    { "id": "recAInvvzCqyqoaAb", "name": "Term 3", "code": "T3", "sessionId": null, "start": "2026-05-04", "end": "2026-05-25" }
+  ]
+}

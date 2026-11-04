@@ -1,12 +1,11 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   SCHOOL_CLASSES,
-  ACADEMIC_STAGES,
-  schoolConfig,
   type SchoolClass,
 } from "../../data/school";
-import { X, CheckCircle2, ArrowRight, ShieldCheck, Calendar, Sparkles } from "lucide-react";
+import { X, CheckCircle2, ArrowRight, Sparkles } from "lucide-react";
 import type { AdmissionFormData } from "../../types";
+import { SchoolDialog } from "./SchoolDialog";
 
 interface AdmissionModalProps {
   isOpen: boolean;
@@ -32,30 +31,51 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [applicationId, setApplicationId] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const saving = useRef(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const generatedId = `MLS-${Math.floor(100000 + Math.random() * 900000)}`;
-    setApplicationId(generatedId);
-    setIsSubmitted(true);
+    if (saving.current || isSubmitted) return;
+    saving.current = true;
+    setIsSaving(true);
+    setSubmitError("");
+    try {
+      const response = await fetch("/api/admissions", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || "Your application could not be saved. Please try again.");
+      if (!result?.id || !result?.reference) throw new Error("The school did not return an application reference. Please contact the office before resubmitting.");
+      setApplicationId(result.reference);
+      setIsSubmitted(true);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Unable to reach the school. Please try again.");
+    } finally {
+      saving.current = false;
+      setIsSaving(false);
+    }
   };
 
   const resetAndClose = () => {
+    if (saving.current) return;
     setIsSubmitted(false);
+    setSubmitError("");
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6">
-      <div
-        className="relative bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-10 shadow-2xl border border-[#E8E2ED] max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <SchoolDialog label="Admission application" onClose={resetAndClose} className="max-w-2xl p-6 sm:p-10">
         {/* Close Button */}
         <button
           onClick={resetAndClose}
+          disabled={isSaving}
           className="absolute top-6 right-6 w-9 h-9 rounded-full bg-[#F7F4FA] hover:bg-[#EDE8F5] text-[#29166F] flex items-center justify-center transition-colors cursor-pointer"
           aria-label="Close dialog"
         >
@@ -128,6 +148,7 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
+              <fieldset disabled={isSaving} className="space-y-6 border-0 p-0 m-0 min-w-0" aria-busy={isSaving}>
               {/* SECTION: CHILD INFORMATION */}
               <div className="p-5 rounded-2xl bg-[#F7F4FA] border border-[#E8E2ED]">
                 <p className="text-xs font-bold uppercase tracking-wider text-[#29166F] mb-4">
@@ -274,21 +295,23 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
 
               {/* Submit CTA */}
               <div className="pt-2">
+                {submitError ? <p role="alert" className="mb-3 text-sm font-semibold text-red-700">{submitError}</p> : null}
                 <button
                   type="submit"
+                  disabled={isSaving}
                   className="w-full py-4 rounded-xl bg-[#581C87] hover:bg-[#29166F] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer group"
                 >
-                  <span>Submit Application for {formData.selectedClass}</span>
+                  <span>{isSaving ? "Saving application…" : `Submit Application for ${formData.selectedClass}`}</span>
                   <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </button>
                 <p className="text-center text-[11px] text-[#625B69] mt-3">
                   All admissions at Marie Louise School are governed by academic readiness and adherence to our school code of truthfulness and respect.
                 </p>
               </div>
+              </fieldset>
             </form>
           </div>
         )}
-      </div>
-    </div>
+    </SchoolDialog>
   );
 };

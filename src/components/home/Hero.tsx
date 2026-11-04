@@ -20,7 +20,7 @@ export const Hero: React.FC<HeroProps> = ({
   const initial = reduceMotion ? false : "hidden";
 
   return (
-    <section className="relative mt-[76px] min-h-[calc(92svh-76px)] overflow-hidden bg-[#1d1047] text-white">
+    <section className="relative mt-16 min-h-[calc(92svh-64px)] overflow-hidden bg-[#1d1047] text-white md:mt-[76px] md:min-h-[calc(92svh-76px)]">
       <motion.img
         src="/images/school/early-years-classroom.jpg"
         alt="Marie Louise School early years pupils learning together"
@@ -35,7 +35,7 @@ export const Hero: React.FC<HeroProps> = ({
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(22,9,55,0.96)_0%,rgba(31,13,70,0.85)_38%,rgba(31,13,70,0.28)_70%,rgba(31,13,70,0.08)_100%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(18,8,46,0.68)_0%,transparent_45%)]" />
 
-      <div className="relative z-10 mx-auto flex min-h-[calc(92svh-76px)] max-w-7xl flex-col justify-center px-5 pb-32 pt-14 sm:px-8 lg:px-10 lg:pb-36 lg:pt-16">
+      <div className="relative z-10 mx-auto flex min-h-[calc(92svh-64px)] max-w-7xl flex-col justify-center px-5 pb-24 pt-10 sm:px-8 md:min-h-[calc(92svh-76px)] md:pb-32 md:pt-14 lg:px-10 lg:pb-36 lg:pt-16">
         <motion.div
           className="max-w-[660px]"
           initial={initial}
@@ -56,7 +56,7 @@ export const Hero: React.FC<HeroProps> = ({
           <motion.h1
             variants={reveal}
             transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
-            className="max-w-[650px] text-[3.35rem] font-extrabold leading-[0.96] sm:text-[4.6rem] lg:text-[5.75rem]"
+            className="max-w-[650px] text-[clamp(2.5rem,10vw,3.35rem)] font-extrabold leading-[0.96] sm:text-[4.6rem] lg:text-[5.75rem]"
           >
             Strong roots.
             <br />

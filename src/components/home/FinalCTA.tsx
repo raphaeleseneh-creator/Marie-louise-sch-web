@@ -56,26 +56,26 @@ export const FinalCTA: React.FC<FinalCTAProps> = ({
             </div>
 
             {/* Contact Quick Snapshot */}
-            <div className="lg:col-span-4 bg-[#F7F4FA] rounded-2xl p-6 border border-[#E8E2ED] text-xs text-[#27232D] space-y-3.5">
-              <p className="font-bold text-[#29166F] text-sm uppercase tracking-wider">
-                Visit Us in Surulere
-              </p>
+            <section id="contact" aria-labelledby="contact-heading" className="scroll-mt-24 lg:col-span-4 bg-[#F7F4FA] rounded-2xl p-6 border border-[#E8E2ED] text-sm text-[#27232D] space-y-3.5">
+              <h3 id="contact-heading" className="font-bold text-[#29166F] text-sm uppercase tracking-wider">
+                Contact the school
+              </h3>
               <div className="flex items-start gap-2.5 text-[#625B69]">
                 <MapPin className="w-4 h-4 text-[#581C87] flex-shrink-0 mt-0.5" />
-                <span>{schoolConfig.address}</span>
+                <div>{schoolConfig.address}<br /><a className="font-bold underline" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(schoolConfig.address)}`}>Get directions</a></div>
               </div>
               <div className="flex items-center gap-2.5 text-[#625B69]">
                 <Mail className="w-4 h-4 text-[#581C87] flex-shrink-0" />
-                <span>{schoolConfig.email}</span>
+                <a className="break-all underline" href={`mailto:${schoolConfig.email}`}>{schoolConfig.email}</a>
               </div>
               <div className="flex items-center gap-2.5 text-[#625B69]">
                 <PhoneCall className="w-4 h-4 text-[#581C87] flex-shrink-0" />
-                <span>{schoolConfig.phone}</span>
+                <a className="underline" href={`tel:${schoolConfig.phone.replace(/[^+\d]/g, "")}`}>{schoolConfig.phone}</a>
               </div>
               <div className="pt-2 border-t border-[#E8E2ED] text-[11px] text-[#625B69]">
                 Tours available Monday to Friday by appointment.
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </div>

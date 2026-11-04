@@ -211,13 +211,12 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
 
-              <button
-                type="button"
-                onClick={onBookTour}
-                className="w-full py-3 px-4 rounded-xl bg-white border border-[#E8E2ED] text-[#29166F] hover:bg-[#F7F4FA] font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+              <a
+                href={`mailto:${schoolConfig.email}?subject=Admissions%20prospectus%20request`}
+                className="block w-full py-3 px-4 rounded-xl bg-white border border-[#E8E2ED] text-center text-[#29166F] hover:bg-[#F7F4FA] font-semibold text-xs sm:text-sm transition-all"
               >
-                Request Admissions Prospectus &amp; Visit Info
-              </button>
+                Email us for the admissions prospectus
+              </a>
             </div>
           </div>
         </div>
