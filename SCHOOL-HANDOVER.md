@@ -37,6 +37,25 @@ Public admissions and tour forms save requests before showing confirmation. Thei
 
 Student sync needs the token, base ID and table ID in `.env`. It remains administrator-only. A class name lookup (`Class Name` or `Class_Name`) should resolve Airtable linked class IDs. Decide which system owns student records before syncing: Airtable can overwrite matching student details. Other Airtable table syncs are outside this implementation.
 
+### Local Airtable JSON Importer
+
+To validate and import local Airtable JSON exports (`AIRTABLE_EXPORT_DIR` in `.env`, defaulting to `.local/airtable-exports`) into the operational MySQL tables (`classes`, `students`, `parents`, `parent_students`, `academic_results`, `attendance`, `fee_invoices`, and `payments`):
+
+1. **Dry-run (default, no database writes):**
+   ```powershell
+   npm.cmd run import:airtable
+   ```
+   Or with a custom export directory:
+   ```powershell
+   node server/import-airtable.js --source "./.local/airtable-exports"
+   ```
+2. **Apply reviewed import (idempotent via `airtable_record_id`):**
+   ```powershell
+   node server/import-airtable.js --apply
+   ```
+
+The importer validates class and term mappings, score boundaries, explicit publication status, invoice-to-payment student consistency, and verified guardian-student links (never linking by matching name, email, or class), and leaves `accounts`, `password_hash`, and `sessions` untouched.
+
 ## Verification
 
 Run `npm.cmd run lint`, `npm.cmd run build` and `npm.cmd run test:server`. Database integration tests require `RUN_DB_TESTS=1` and the local database connection. Integration tests create uniquely named fixtures and remove only their own records afterward.

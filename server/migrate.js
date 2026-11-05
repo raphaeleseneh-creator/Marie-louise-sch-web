@@ -1,5 +1,35 @@
 import { pool } from './db.js';
 import { fileURLToPath } from 'node:url';
+
+export const OPERATIONAL_AIRTABLE_TABLES = [
+  'classes',
+  'students',
+  'parents',
+  'parent_students',
+  'academic_results',
+  'attendance',
+  'fee_invoices',
+  'payments',
+];
+
+export async function ensureAirtableIdColumns(executor = pool) {
+  for (const tableName of OPERATIONAL_AIRTABLE_TABLES) {
+    const [[column]] = await executor.query(
+      'SELECT COUNT(*) AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
+      [tableName, 'airtable_record_id'],
+    );
+    if (!Number(column.present)) {
+      try {
+        await executor.query(
+          `ALTER TABLE \`${tableName}\` ADD COLUMN \`airtable_record_id\` VARCHAR(64) NULL UNIQUE`,
+        );
+      } catch (error) {
+        if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+      }
+    }
+  }
+}
+
 export async function migrate() {
   for (const sql of [
     `CREATE TABLE IF NOT EXISTS accounts (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, full_name VARCHAR(150) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL, role ENUM('admin','teacher','bursar','parent') NOT NULL, parent_id BIGINT UNSIGNED NULL, active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(parent_id) REFERENCES parents(id))`,
@@ -18,6 +48,7 @@ export async function migrate() {
       if (error.code !== 'ER_DUP_FIELDNAME') throw error;
     }
   }
+  await ensureAirtableIdColumns(pool);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try { await migrate(); console.log('Database additions ready. Existing records preserved.'); } finally { await pool.end(); }
