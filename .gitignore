@@ -12,3 +12,4 @@ backup-*.sql
 *.dump
 MLS SCHEMAs/
 airtable-exports/
+.vercel

@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
 
 // Opt in only against the existing local database; no migrations or seed data run.
-test('real database API boundaries and transactions', {skip: process.env.RUN_DB_TESTS !== '1', timeout: 120000}, async t => {
+test('real database API boundaries and transactions', {skip: process.env.RUN_DB_TESTS !== '1', timeout: Number(process.env.DB_TEST_TIMEOUT_MS || 120000)}, async t => {
   const {app} = await import('../app.js');
   const {pool} = await import('../db.js');
   const {hashPassword} = await import('../auth.js');
