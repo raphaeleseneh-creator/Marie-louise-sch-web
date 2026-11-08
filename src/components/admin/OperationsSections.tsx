@@ -1,3 +1,4 @@
+import { RemoveAccountAccess } from "./RemoveAccountAccess";
 import { ParentApproval } from "./ParentApproval";
 import React, { useState } from "react";
 import { Row, dateText, localDate, money, studentName } from "./api";
@@ -29,6 +30,8 @@ export function PaymentsSection({ rows, invoices, save }: { rows: Row[]; invoice
 export function AccountsSection({ rows, parents, classes, save, currentUserId, canManageDevelopers = false }: { rows: Row[]; parents: Row[]; classes: Row[]; save: Save; currentUserId: number; canManageDevelopers?: boolean }) {
   const [role, setRole] = useState("teacher");
   const [editing, setEditing] = useState<Row | null>(null);
+  const [removingAccess, setRemovingAccess] = useState<Row | null>(null);
+  if (removingAccess) return <RemoveAccountAccess account={removingAccess} save={save} cancel={() => setRemovingAccess(null)} />;
   if (editing?.registration_pending) return <ParentApproval account={editing} parents={parents} save={save} cancel={() => setEditing(null)} />;
   if (editing) return <div className="max-w-xl"><EntryForm key={editing.id} title={`Manage ${editing.full_name}`} onCancel={() => setEditing(null)} resetOnSuccess={false} onSave={async (data, form) => {
     const payload: Record<string, unknown> = { active: data.active === "true" };
@@ -41,7 +44,7 @@ export function AccountsSection({ rows, parents, classes, save, currentUserId, c
     { label: "Name", render: row => row.full_name }, { label: "Email", render: row => row.email },
     { label: "Access", render: row => <Status value={row.registration_pending ? "pending approval" : row.active === true || Number(row.active) === 1 ? "active" : "deactivated"} /> },
     { label: "Classes", render: row => Array.isArray(row.class_ids) ? row.class_ids.map(id => classes.find(item => item.id === id)?.name || `#${id}`).join(", ") || "—" : "—" },
-    { label: "Actions", render: row => row.id === currentUserId ? <span className="text-xs text-[#625B69]">Use Account settings</span> : row.role === "developer" && !canManageDevelopers ? <span className="text-xs text-[#625B69]">Developer-managed account</span> : <button className={secondaryClass} onClick={() => setEditing(row)}>Manage access</button> },
+    { label: "Actions", render: row => row.id === currentUserId ? <span className="text-xs text-[#625B69]">Use Account settings</span> : row.role === "developer" && !canManageDevelopers ? <span className="text-xs text-[#625B69]">Developer-managed account</span> : <div className="flex flex-wrap gap-2"><button className={secondaryClass} onClick={() => setEditing(row)}>Manage access</button>{canManageDevelopers && !row.registration_pending && (row.active === true || Number(row.active) === 1) ? <button type="button" className="min-h-11 rounded-lg border border-red-200 px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => setRemovingAccess(row)}>Remove access</button> : null}</div> },
     { label: "Role", render: row => <Status value={row.role} /> }, { label: "Parent record", render: row => row.parent_id ? parents.find(parent => parent.id === Number(row.parent_id))?.full_name || `#${row.parent_id}` : "—" },
   ]} /><EntryForm title="Create account" onSave={async (data, form) => {
     const ok = await save("/api/accounts", { full_name: data.full_name, email: data.email, password: data.password, role, parent_id: role === "parent" ? Number(data.parent_id) : null, class_ids: role === "teacher" ? new FormData(form).getAll("class_ids").map(Number) : [] });

@@ -108,7 +108,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
         setNotice({ error: false, text: "Password changed. Sign in again with your new password." }); return true;
       }
       if (version !== requestVersion.current) return true;
-      setNotice({ error: false, text: path.endsWith("/import") ? `CSV import complete${result?.imported != null ? `: ${result.imported} results saved` : ""}.` : path === "/api/sync/students" ? `${result?.synced ?? 0} student records synced from Airtable.` : "Changes saved successfully." });
+      setNotice({ error: false, text: path.startsWith("/api/accounts/") && payload.active === false ? "Access removed. This person has been signed out and cannot sign in." : path.endsWith("/import") ? `CSV import complete${result?.imported != null ? `: ${result.imported} results saved` : ""}.` : path === "/api/sync/students" ? `${result?.synced ?? 0} student records synced from Airtable.` : "Changes saved successfully." });
       await refresh();
       return true;
     } catch (error) {

@@ -109,6 +109,18 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
     await request('developer','GET','/students');
     const created=await request('developer','POST','/accounts',{full_name:`${prefix}_manager`,email:`${prefix}_manager@example.invalid`,password,role:'admin'},201);
     owned.accounts.push(created.data.id);
+    const managerLogin=await request(null,'POST','/auth/login',{email:`${prefix}_manager@example.invalid`,password});
+    cookies.manager=managerLogin.response.headers.get('set-cookie').split(';')[0];
+    await request('teacher','PATCH',`/accounts/${created.data.id}`,{active:false},403);
+    await request('developer','PATCH',`/accounts/${accounts.developer}`,{active:false},400);
+    await request('developer','PATCH',`/accounts/${created.data.id}`,{active:false});
+    await request('manager','GET','/auth/me',undefined,401);
+    await request(null,'POST','/auth/login',{email:`${prefix}_manager@example.invalid`,password},401);
+    const [[disabledManager]]=await pool.query('SELECT active FROM accounts WHERE id=?',[created.data.id]);
+    assert.equal(Number(disabledManager.active),0,'account is preserved with access disabled');
+    await request('developer','PATCH',`/accounts/${created.data.id}`,{active:true});
+    const [[restoredManager]]=await pool.query('SELECT active FROM accounts WHERE id=?',[created.data.id]);
+    assert.equal(Number(restoredManager.active),1,'Developer can restore access without deleting records');
     await request('admin','PATCH',`/accounts/${accounts.developer}`,{active:false},403);
     await request('admin','POST','/accounts',{full_name:'Not allowed',email:`${prefix}_forbidden@example.invalid`,password,role:'developer'},400);
   });
