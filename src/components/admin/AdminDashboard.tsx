@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, BookOpenCheck, CalendarDays, CircleDollarSign, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, X } from "lucide-react";
+import { GoogleSignIn } from "../ui/GoogleSignIn";
 import { SchoolLogo } from "../ui/SchoolLogo";
 import { checkSchoolService, PortalUnavailable } from "../ui/PortalAvailability";
 import { ApiError, Role, Row, StaffUser, api, errorMessage, studentName } from "./api";
@@ -138,7 +139,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       else setNotice({ error: true, text: errorMessage(error) });
       return false;
     }
-  }}><Field label="Email address" name="email" type="email" autoComplete="username" required /><Field label="Password" name="password" type="password" autoComplete="current-password" required /></EntryForm><button className={`${secondaryClass} mt-5 w-full`} onClick={onBackToSchool}><ArrowLeft size={16} />School website</button></div></main>;
+  }}><Field label="Email address" name="email" type="email" autoComplete="username" required /><Field label="Password" name="password" type="password" autoComplete="current-password" required /></EntryForm>{!serviceUnavailable ? <GoogleSignIn portal="staff" /> : null}<button className={`${secondaryClass} mt-5 w-full`} onClick={onBackToSchool}><ArrowLeft size={16} />School website</button></div></main>;
   if (!staff.includes(user.role)) return <main className="flex min-h-screen items-center justify-center bg-[#F6F3F8] p-6"><section className="max-w-md rounded-xl bg-white p-8 text-[#29166F]">{noticeElement}<ShieldCheck className="mb-4" /><h1 className="text-2xl font-extrabold">Staff access required</h1><p className="mt-3 text-sm leading-6">This account does not have access to the staff workspace. Use the parent portal on the school website to view family records.</p><div className="mt-6 flex flex-wrap gap-3"><button className={buttonClass} onClick={onBackToSchool}>School website</button><button className={secondaryClass} onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? "Signing out…" : "Sign out"}</button></div></section></main>;
 
   return <main className="min-h-[100dvh] bg-[#F6F3F8] text-[#27232D]">

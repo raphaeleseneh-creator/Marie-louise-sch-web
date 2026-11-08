@@ -1,5 +1,6 @@
 import { pool } from './db.js';
 import { fileURLToPath } from 'node:url';
+import { ensureGoogleSchema } from './google-schema.js';
 
 export const OPERATIONAL_AIRTABLE_TABLES = [
   'classes',
@@ -49,6 +50,7 @@ export async function migrate() {
     }
   }
   await ensureAirtableIdColumns(pool);
+  await ensureGoogleSchema(pool);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try { await migrate(); console.log('Database additions ready. Existing records preserved.'); } finally { await pool.end(); }

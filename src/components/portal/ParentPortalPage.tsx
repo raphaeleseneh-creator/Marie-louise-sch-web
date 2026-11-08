@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, CreditCard, Eye, EyeOff, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
+import { GoogleSignIn } from "../ui/GoogleSignIn";
 import { SchoolLogo } from "../ui/SchoolLogo";
 import { schoolConfig } from "../../data/school";
 import { checkSchoolService, PortalUnavailable } from "../ui/PortalAvailability";
 import { AcademicTermFilter, matchesAcademicTerm } from "../ui/AcademicTerms";
 
-type User = { id: number; full_name: string; role: string; parent_id: number | null };
+type User = { id: number; full_name: string; role: string; parent_id: number | null; registration_pending?: number | boolean };
 type Row = Record<string, string | number | null>;
 type Student = Row & { id: number; first_name: string; last_name: string; student_code: string; class_name: string | null };
 type Dashboard = { student: Student; attendance: { total_days: number; days_present: number; days_absent: number; other_days: number }; fees: { total_due: number | string; total_paid: number | string }; announcements: Row[] };
@@ -37,7 +38,7 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 function parentUser(user: User) {
-  if (!user || user.role !== "parent" || !user.parent_id) throw new ApiError("This account has no parent portal access. Please contact the school office.", 403);
+  if (!user || user.role !== "parent" || (!user.parent_id && !user.registration_pending)) throw new ApiError("This account has no parent portal access. Please contact the school office.", 403);
   return user;
 }
 function resource<T>(response: PromiseSettledResult<T>, list = false): Resource<T> {
@@ -88,7 +89,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   }, [sessionCheck]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.registration_pending) return;
     const controller = new AbortController();
     setChildrenLoading(true); setChildrenError(""); setChildren([]); setStudentId(""); setRecords(null); setPrintDocument(null);
     api<Student[]>(`/api/parents/${encodeURIComponent(String(user.parent_id))}/children`, { signal: controller.signal })
@@ -107,7 +108,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   }, [user, reload]);
 
   useEffect(() => {
-    if (!user || !studentId) return;
+    if (!user || user.registration_pending || !studentId) return;
     const controller = new AbortController();
     setRecords(null); setPrintDocument(null);
     const base = `/api/students/${encodeURIComponent(studentId)}`;
@@ -171,6 +172,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   };
 
   if (checking) return <main className="flex min-h-screen items-center justify-center bg-[#F4F1F7] text-[#29166F]"><p role="status">Checking your session…</p></main>;
+  if (user?.registration_pending) return <main className="flex min-h-screen items-center justify-center bg-[#F4F1F7] p-6"><section className="w-full max-w-lg rounded-xl bg-white p-8 text-[#29166F]"><ShieldCheck size={40} /><h1 className="mt-5 text-2xl font-extrabold">Waiting for school approval</h1><p className="mt-4 leading-7">Welcome, {user.full_name}. Your account has been created. The school must verify your guardian record and child links before any pupil information is available.</p><p className="mt-4 text-sm leading-6">Please contact the school office to confirm your details. Each child must be linked by the school. After approval, sign in again.</p><a className="mt-4 inline-block font-bold underline" href={`mailto:${schoolConfig.email}?subject=Parent%20account%20approval`}>Contact the school office</a><div className="mt-6 flex flex-wrap gap-3"><button className={buttonClass} onClick={() => window.location.reload()}>Check approval status</button><button className={buttonClass} onClick={() => void signOut()} disabled={busy}>Sign out</button></div>{error ? <p role="alert" className="mt-4 text-red-700">{error}</p> : null}</section></main>;
   if (!user) return (
     <main className="min-h-[100dvh] bg-white text-[#27232D] lg:grid lg:grid-cols-2">
       <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#29166F] p-12 lg:flex">
@@ -189,6 +191,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
             {loginNotice ? <p role="status" className="text-sm text-emerald-700">{loginNotice}</p> : null}
             {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}<button disabled={busy} className={`${buttonClass} w-full`}>{busy ? "Please wait…" : "Sign in securely"}</button>
           </form>
+          {!serviceUnavailable ? <GoogleSignIn portal="parent" /> : null}
         </div><p className="border-t border-[#E8E2ED] pt-5 text-center text-xs text-[#625B69]">Private access for Marie Louise School families</p>
       </section>
     </main>

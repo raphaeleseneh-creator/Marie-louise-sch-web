@@ -5,6 +5,7 @@ import {identify,roles,requireAdmin,canAccessStudent,studentScope,fail,positiveI
 import {text,number,choice,date,email,resultData,parseCsv} from './validation.js';
 import {fetchAllAirtableRecords,airtableField} from './airtable.js';
 import { resolveTerm, termLabel } from './academic-calendar.js';
+import { installGoogleAuth } from './google-auth.js';
 export const app=express();
 app.disable('x-powered-by');
 app.set('trust proxy',false);
@@ -25,6 +26,7 @@ const buckets=new Map();
 function limit(prefix,max){return(req,res,next)=>{const key=prefix+req.ip;const now=Date.now();let bucket=buckets.get(key);if(!bucket||bucket.until<now){bucket={count:0,until:now+15*60*1000};buckets.set(key,bucket);}if(++bucket.count>max)return res.status(429).json({error:'Too many requests. Please try again in 15 minutes.'});next();};}
 const cleanup=setInterval(()=>{for(const [key,b]of buckets)if(b.until<Date.now())buckets.delete(key);},60000);cleanup.unref();
 app.use(identify);
+installGoogleAuth(app,{wrap,limit});
 app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE)});}));
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
@@ -40,10 +42,28 @@ app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   res.cookie('ml_session',token,{...cookieOptions,maxAge:8*60*60*1000});
   const {id,full_name,role,parent_id}=account;res.json({user:{id,full_name,role,parent_id}});
 }));
-app.get('/api/auth/me',all,(req,res)=>res.json({user:req.user}));
+app.get('/api/auth/me',(req,res)=>req.user?res.json({user:req.user}):res.status(401).json({error:'Please sign in.'}));
 app.post('/api/auth/logout',wrap(async(req,res)=>{const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);if(token)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(token)]);res.clearCookie('ml_session',cookieOptions);res.json({ok:true});}));
 app.post('/api/auth/password',all,wrap(async(req,res)=>{const [[a]]=await pool.query('SELECT password_hash FROM accounts WHERE id=?',[req.user.id]);if(!await verifyPassword(text(req.body.current_password,'Current password',200),a.password_hash))fail(400,'Current password is incorrect.');const password=text(req.body.new_password,'New password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await pool.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),req.user.id]);await pool.query('DELETE FROM sessions WHERE account_id=?',[req.user.id]);res.clearCookie('ml_session',cookieOptions);res.json({ok:true});}));
-app.get('/api/accounts',requireAdmin,wrap(async(_req,res)=>{const [rows]=await pool.query('SELECT id,full_name,email,role,parent_id,active FROM accounts ORDER BY full_name');const [links]=await pool.query('SELECT account_id,class_id FROM staff_classes');res.json(rows.map(r=>({...r,class_ids:links.filter(x=>x.account_id===r.id).map(x=>x.class_id)})));}));
+app.get('/api/accounts',requireAdmin,wrap(async(_req,res)=>{const [rows]=await pool.query('SELECT id,full_name,email,role,parent_id,active,registration_pending,(google_sub IS NOT NULL) google_linked FROM accounts ORDER BY registration_pending DESC,full_name');const [links]=await pool.query('SELECT account_id,class_id FROM staff_classes');res.json(rows.map(r=>({...r,class_ids:links.filter(x=>x.account_id===r.id).map(x=>x.class_id)})));}));
+app.post('/api/accounts/:id/approve-parent',requireAdmin,wrap(async(req,res)=>{
+  const id=positiveId(req.params.id),parentId=positiveId(req.body.parent_id),confirmed=req.body.verified_student_ids;
+  if(!id||!parentId||!Array.isArray(confirmed)||!confirmed.length||confirmed.some(x=>!positiveId(x))||req.body.guardian_verified!==true)fail(400,'Verify the guardian and every listed child before approval.');
+  const db=await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);
+    if(!account?.registration_pending||account.role!=='parent'||account.active||account.parent_id)fail(409,'This account is not awaiting parent approval.');
+    const [[parent]]=await db.query("SELECT id FROM parents WHERE id=? AND status='active' FOR UPDATE",[parentId]);
+    if(!parent)fail(400,'Choose an active guardian record.');
+    const [links]=await db.query("SELECT ps.student_id FROM parent_students ps JOIN students s ON s.id=ps.student_id WHERE ps.parent_id=? AND s.enrollment_status='active' FOR UPDATE",[parentId]);
+    const actual=links.map(x=>Number(x.student_id)).sort((a,b)=>a-b),expected=[...new Set(confirmed.map(Number))].sort((a,b)=>a-b);
+    if(JSON.stringify(actual)!==JSON.stringify(expected))fail(409,'The linked children have changed. Review them again.');
+    await db.query('UPDATE accounts SET parent_id=?,registration_pending=FALSE,active=TRUE WHERE id=?',[parentId,id]);
+    await db.query('DELETE FROM sessions WHERE account_id=?',[id]);
+    await db.commit();res.json({ok:true});
+  }catch(error){await db.rollback();throw error;}finally{db.release();}
+}));
 app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const b=req.body,role=choice(b.role,['admin','teacher','bursar','parent'],'role'),password=text(b.password,'Password',200);if(password.length<12)fail(400,'Use a password of at least 12 characters.');
   const parentId=role==='parent'?positiveId(b.parent_id):null;if(role==='parent'&&!parentId)fail(400,'Link this account to a parent record.');
@@ -51,7 +71,7 @@ app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const hash=await hashPassword(password),db=await pool.getConnection();
   try{await db.beginTransaction();const [result]=await db.query('INSERT INTO accounts(full_name,email,password_hash,role,parent_id) VALUES (?,?,?,?,?)',[text(b.full_name,'Name',150),email(b.email),hash,role,parentId]);if(role==='teacher')for(const id of new Set(classIds))await db.query('INSERT INTO staff_classes(account_id,class_id) VALUES (?,?)',[result.insertId,id]);await db.commit();res.status(201).json({id:result.insertId});}catch(error){await db.rollback();throw error;}finally{db.release();}
 }));
-app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
+app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(account.registration_pending)fail(409,'Use the verified parent approval form for this account.');if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
 app.get('/api/students',all,wrap(async(req,res)=>{const scope=studentScope(req.user);const params=[...scope.params];let filter=scope.sql;if(req.query.class_id){filter+=' AND s.class_id=?';params.push(number(req.query.class_id,'Class',1));}const [rows]=await pool.query(`SELECT s.*,c.name AS class_name FROM students s LEFT JOIN classes c ON c.id=s.class_id WHERE ${filter} ORDER BY s.last_name,s.first_name`,params);res.json(rows);}));
 app.get('/api/classes',staff,wrap(async(req,res)=>{const teacher=req.user.role==='teacher';const [rows]=await pool.query(`SELECT id,name FROM classes ${teacher?'WHERE id IN (SELECT class_id FROM staff_classes WHERE account_id=?)':''} ORDER BY name`,teacher?[req.user.id]:[]);res.json(rows);}));
 app.post('/api/classes',requireAdmin,wrap(async(req,res)=>{const name=text(req.body.name,'Class name',100);const [r]=await pool.query('INSERT INTO classes(name) VALUES (?)',[name]);res.status(201).json({id:r.insertId,name});}));
