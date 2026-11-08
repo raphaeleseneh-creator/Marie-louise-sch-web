@@ -13,16 +13,14 @@ import { AdmissionsSection } from "./components/home/AdmissionsSection";
 import { NewsEvents } from "./components/home/NewsEvents";
 import { ParentPortalSection } from "./components/home/ParentPortalSection";
 import { FinalCTA } from "./components/home/FinalCTA";
-import { AdmissionModal } from "./components/modals/AdmissionModal";
 import { ParentPortalPage } from "./components/portal/ParentPortalPage";
 import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { BookTourModal } from "./components/modals/BookTourModal";
 import type { NavTab } from "./types";
-import type { SchoolClass } from "./data/school";
+import { schoolConfig } from "./data/school";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("home");
-  const [isAdmissionOpen, setIsAdmissionOpen] = useState(false);
   const [isParentPortalPage, setIsParentPortalPage] = useState(
     () => window.location.pathname === "/parent-portal"
   );
@@ -30,7 +28,6 @@ export default function App() {
     () => window.location.pathname === "/admin"
   );
   const [isBookTourOpen, setIsBookTourOpen] = useState(false);
-  const [selectedClassForAdmission, setSelectedClassForAdmission] = useState<SchoolClass | undefined>();
 
   useEffect(() => {
     const handlePopState = () => {
@@ -93,9 +90,8 @@ export default function App() {
     return <AdminDashboard onBackToSchool={closeAdmin} />;
   }
 
-  const handleOpenAdmissions = (preselectedClass?: SchoolClass) => {
-    setSelectedClassForAdmission(preselectedClass);
-    setIsAdmissionOpen(true);
+  const handleOpenAdmissions = () => {
+    window.location.assign(schoolConfig.admissionsFormUrl);
   };
 
   return (
@@ -124,7 +120,7 @@ export default function App() {
 
         {/* 04. Academic Journey (Strictly Early Years & Primary) */}
         <AcademicJourney
-          onSelectClassForAdmission={(cls) => handleOpenAdmissions(cls)}
+          onSelectClassForAdmission={handleOpenAdmissions}
         />
 
         {/* 05. Pedagogical Learning Experiences (Beyond the Classroom) */}
@@ -141,7 +137,7 @@ export default function App() {
 
         {/* 09. Admissions & Single-Select Class Inquiry */}
         <AdmissionsSection
-          onStartApplication={(cls) => handleOpenAdmissions(cls)}
+          onStartApplication={handleOpenAdmissions}
           onBookTour={() => setIsBookTourOpen(true)}
         />
 
@@ -168,15 +164,6 @@ export default function App() {
       />
 
       {/* Interactive Modals */}
-      {isAdmissionOpen ? <AdmissionModal
-        isOpen={isAdmissionOpen}
-        onClose={() => {
-          setIsAdmissionOpen(false);
-          setSelectedClassForAdmission(undefined);
-        }}
-        preselectedClass={selectedClassForAdmission}
-      /> : null}
-
       <BookTourModal
         isOpen={isBookTourOpen}
         onClose={() => setIsBookTourOpen(false)}

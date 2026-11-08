@@ -43,6 +43,7 @@ export const ACADEMIC_STAGES = {
 } as const;
 
 export interface SchoolConfig {
+  admissionsFormUrl: string;
   currentAcademicSession: string;
   admissionsOpen: boolean;
   admissionsMessage: string;
@@ -58,6 +59,7 @@ export interface SchoolConfig {
 }
 
 export const schoolConfig: SchoolConfig = {
+  admissionsFormUrl: "https://forms.gle/RAc3n1QEBbgKp6te6",
   currentAcademicSession: "", // Left empty if not provided; displays evergreen copy
   admissionsOpen: true,
   admissionsMessage: "Admissions are now open for Early Years and Primary classes.",
