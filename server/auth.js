@@ -23,10 +23,10 @@ export async function identify(req,_res,next) {
     next();
   } catch(error) {next(error);}
 }
-export function roles(...allowed) {return(req,_res,next)=>{if(!req.user)return next(Object.assign(new Error('Please sign in.'),{status:401}));if(req.user.registration_pending||!allowed.includes(req.user.role))return next(Object.assign(new Error('You do not have permission for this action.'),{status:403}));next();};}
+export function roles(...allowed) {return(req,_res,next)=>{if(!req.user)return next(Object.assign(new Error('Please sign in.'),{status:401}));const permitted=allowed.includes(req.user.role)||(req.user.role==='developer'&&allowed.includes('admin'));if(req.user.registration_pending||!permitted)return next(Object.assign(new Error('You do not have permission for this action.'),{status:403}));next();};}
 export const requireAdmin=roles('admin');
 export async function canAccessStudent(user,studentId,db=pool) {
-  if(!user || user.registration_pending || !['admin','teacher','bursar','parent'].includes(user.role))fail(403,'School approval is required.');
+  if(!user || user.registration_pending || !['admin','teacher','bursar','parent','developer'].includes(user.role))fail(403,'School approval is required.');
   if(!positiveId(studentId))fail(400,'Choose a valid student.');
   const [[student]]=await db.query('SELECT * FROM students WHERE id=?',[studentId]);if(!student)fail(404,'Student not found.');
   if(user.role==='parent') {const [[link]]=await db.query(`SELECT 1 FROM parent_students ps JOIN parents p ON p.id=ps.parent_id WHERE ps.parent_id=? AND ps.student_id=? AND p.status='active' AND ?='active'`,[user.parent_id,studentId,student.enrollment_status]);if(!link)fail(403,'This student is not linked to your account.');}
@@ -34,7 +34,7 @@ export async function canAccessStudent(user,studentId,db=pool) {
   return student;
 }
 export function studentScope(user,alias='s') {
-  if(!user || user.registration_pending || !['admin','teacher','bursar','parent'].includes(user.role))return{sql:'1=0',params:[]};
+  if(!user || user.registration_pending || !['admin','teacher','bursar','parent','developer'].includes(user.role))return{sql:'1=0',params:[]};
   if(user.role==='teacher')return{sql:`${alias}.class_id IN (SELECT class_id FROM staff_classes WHERE account_id=?)`,params:[user.id]};
   if(user.role==='parent')return{sql:`${alias}.enrollment_status='active' AND ${alias}.id IN (SELECT student_id FROM parent_students WHERE parent_id=?)`,params:[user.parent_id]};
   return{sql:'1=1',params:[]};

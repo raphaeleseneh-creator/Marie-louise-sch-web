@@ -12,24 +12,24 @@ import { SyncSection } from "./SyncSection";
 
 type View = "overview" | "students" | "classes" | "parents" | "results" | "attendance" | "fees" | "payments" | "announcements" | "admissions" | "tours" | "accounts" | "settings" | "sync";
 type Navigation = { id: View; label: string; icon: React.ElementType; roles: Role[] };
-const staff: Role[] = ["admin", "teacher", "bursar"];
-const teaching: Role[] = ["admin", "teacher"];
-const finance: Role[] = ["admin", "bursar"];
+const staff: Role[] = ["developer", "admin", "teacher", "bursar"];
+const teaching: Role[] = ["developer", "admin", "teacher"];
+const finance: Role[] = ["developer", "admin", "bursar"];
 const navigation: Navigation[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard, roles: staff },
   { id: "students", label: "Students", icon: GraduationCap, roles: staff },
   { id: "classes", label: "Classes", icon: BookOpenCheck, roles: staff },
-  { id: "parents", label: "Parents & guardians", icon: Users, roles: ["admin"] },
+  { id: "parents", label: "Parents & guardians", icon: Users, roles: ["developer", "admin"] },
   { id: "results", label: "Results", icon: BookOpenCheck, roles: teaching },
   { id: "attendance", label: "Attendance", icon: ClipboardCheck, roles: teaching },
   { id: "fees", label: "Fee invoices", icon: CircleDollarSign, roles: finance },
   { id: "payments", label: "Payments", icon: CircleDollarSign, roles: finance },
   { id: "announcements", label: "Announcements", icon: Bell, roles: teaching },
-  { id: "admissions", label: "Admissions", icon: GraduationCap, roles: ["admin"] },
-  { id: "tours", label: "School tours", icon: CalendarDays, roles: ["admin"] },
-  { id: "accounts", label: "Accounts & access", icon: ShieldCheck, roles: ["admin"] },
+  { id: "admissions", label: "Admissions", icon: GraduationCap, roles: ["developer", "admin"] },
+  { id: "tours", label: "School tours", icon: CalendarDays, roles: ["developer", "admin"] },
+  { id: "accounts", label: "Accounts & access", icon: ShieldCheck, roles: ["developer", "admin"] },
   { id: "settings", label: "Account settings", icon: ShieldCheck, roles: staff },
-  { id: "sync", label: "Airtable sync", icon: RefreshCw, roles: ["admin"] },
+  { id: "sync", label: "Airtable sync", icon: RefreshCw, roles: ["developer", "admin"] },
 ];
 const descriptions: Record<View, string> = {
   overview: "Choose a section to manage school records.", students: "Student records available to your account.", classes: "Classes available to your account.",
@@ -84,7 +84,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       const endpoint = view === "announcements" ? "/api/admin/announcements" : `/api/${view}`;
       const [students, classes, parents, rows, invoices, health] = await Promise.all([
         api<Row[]>("/api/students"), api<Row[]>("/api/classes"),
-        user.role === "admin" && ["parents", "accounts"].includes(view) ? api<Row[]>("/api/parents") : Promise.resolve([]),
+        ["developer", "admin"].includes(user.role) && ["parents", "accounts"].includes(view) ? api<Row[]>("/api/parents") : Promise.resolve([]),
         ["overview", "students", "classes", "parents", "settings", "sync"].includes(view) ? Promise.resolve([]) : api<Row[]>(endpoint),
         view === "payments" ? api<Row[]>("/api/fees") : Promise.resolve([]),
         view === "sync" ? api<{ airtableConfigured: boolean }>("/api/health") : Promise.resolve({ airtableConfigured: false }),
@@ -129,7 +129,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
   const noticeElement = notice ? <div role={notice.error ? "alert" : "status"} className={`mb-6 flex items-start justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${notice.error ? "border-red-200 bg-red-50 text-red-800" : "border-green-200 bg-green-50 text-green-800"}`}><p className="break-words whitespace-pre-wrap">{notice.text}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="shrink-0 p-1"><X size={18} /></button></div> : null;
 
   if (checking) return <main className="flex min-h-screen items-center justify-center bg-[#F6F3F8] p-6 text-[#29166F]"><p role="status">Checking your staff session…</p></main>;
-  if (!user) return <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#F6F3F8] px-4 py-10"><div className="w-full max-w-md"><div className="mb-6 rounded-xl border-t-4 border-[#E9DB3D] bg-[#29166F] p-7 text-white"><SchoolLogo variant="dark" onClick={onBackToSchool} /><p className="mt-6 text-xs font-extrabold uppercase tracking-widest text-[#E9DB3D]">Staff workspace</p><h1 className="mt-2 text-2xl font-extrabold">Sign in to school records</h1><p className="mt-3 text-sm text-white/75">For administrators, teachers and bursars.</p></div>{noticeElement}{serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}<EntryForm disabled={serviceUnavailable} title="Staff sign in" submitLabel="Sign in" onSave={async data => {
+  if (!user) return <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#F6F3F8] px-4 py-10"><div className="w-full max-w-md"><div className="mb-6 rounded-xl border-t-4 border-[#E9DB3D] bg-[#29166F] p-7 text-white"><SchoolLogo variant="dark" onClick={onBackToSchool} /><p className="mt-6 text-xs font-extrabold uppercase tracking-widest text-[#E9DB3D]">Staff workspace</p><h1 className="mt-2 text-2xl font-extrabold">Sign in to school records</h1><p className="mt-3 text-sm text-white/75">For developers, administrators, teachers and bursars.</p></div>{noticeElement}{serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}<EntryForm disabled={serviceUnavailable} title="Staff sign in" submitLabel="Sign in" onSave={async data => {
     try {
       await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: String(data.email).trim(), password: data.password }) });
       const result = await api<{ user: StaffUser }>("/api/auth/me");
@@ -156,16 +156,16 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       {view === "overview" ? <div><div className="mb-8 flex flex-wrap gap-10 border-y border-[#E5DFE9] py-6"><div><p className="text-sm text-[#625B69]">Students in your scope</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.students.length}</p></div><div><p className="text-sm text-[#625B69]">Available classes</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.classes.length}</p></div><div><p className="text-sm text-[#625B69]">Signed in as</p><p className="mt-2 text-lg font-bold capitalize text-[#29166F]">{user.role}</p></div></div><h2 className="mb-4 text-xl font-extrabold text-[#29166F]">Your workspace</h2><div className="grid gap-x-8 sm:grid-cols-2">{allowed.filter(item => item.id !== "overview").map(item => <button key={item.id} className="group flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] py-4 text-left" onClick={() => { navigate(item.id); }}><span><span className="block font-bold text-[#29166F]">{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{descriptions[item.id]}</span></span><span aria-hidden="true" className="text-xl text-[#581C87] transition-transform group-hover:translate-x-1">→</span></button>)}</div></div> : null}
       {view === "students" ? <DataTable rows={data.students} searchLabel="Search student or class" columns={[{ label: "Student", render: studentName }, { label: "Student code", render: row => row.student_code }, { label: "Record ID", render: row => row.id }, { label: "Class", render: row => row.class_name || "Unassigned" }, { label: "Status", render: row => <Status value={row.enrollment_status || "active"} /> }]} /> : null}
       {view === "classes" ? <DataTable rows={data.classes} columns={[{ label: "Class", render: row => row.name }, { label: "Class ID", render: row => row.id }]} /> : null}
-      {view === "parents" && user.role === "admin" ? <DataTable rows={data.parents} columns={[{ label: "Name", render: row => row.full_name }, { label: "Email", render: row => row.email }, { label: "Phone", render: row => row.phone || "—" }, { label: "Status", render: row => <Status value={row.status} /> }]} /> : null}
-      {view === "results" && teaching.includes(user.role) ? <ResultsSection rows={data.rows} students={data.students} save={save} canPublish={user.role === "admin"} /> : null}
+      {view === "parents" && ["developer", "admin"].includes(user.role) ? <DataTable rows={data.parents} columns={[{ label: "Name", render: row => row.full_name }, { label: "Email", render: row => row.email }, { label: "Phone", render: row => row.phone || "—" }, { label: "Status", render: row => <Status value={row.status} /> }]} /> : null}
+      {view === "results" && teaching.includes(user.role) ? <ResultsSection rows={data.rows} students={data.students} save={save} canPublish={["developer", "admin"].includes(user.role)} /> : null}
       {view === "attendance" && teaching.includes(user.role) ? <AttendanceSection rows={data.rows} students={data.students} save={save} /> : null}
-      {view === "announcements" && teaching.includes(user.role) ? <AnnouncementsSection rows={data.rows} students={data.students} classes={data.classes} save={save} canWriteSchool={user.role === "admin"} /> : null}
+      {view === "announcements" && teaching.includes(user.role) ? <AnnouncementsSection rows={data.rows} students={data.students} classes={data.classes} save={save} canWriteSchool={["developer", "admin"].includes(user.role)} /> : null}
       {view === "fees" && finance.includes(user.role) ? <FeesSection rows={data.rows} students={data.students} save={save} /> : null}
       {view === "payments" && finance.includes(user.role) ? <PaymentsSection rows={data.rows} invoices={data.invoices} save={save} /> : null}
-      {(view === "admissions" || view === "tours") && user.role === "admin" ? <RequestsSection rows={data.rows} kind={view} save={save} /> : null}
-      {view === "accounts" && user.role === "admin" ? <AccountsSection rows={data.rows} parents={data.parents} classes={data.classes} save={save} currentUserId={user.id} /> : null}
+      {(view === "admissions" || view === "tours") && ["developer", "admin"].includes(user.role) ? <RequestsSection rows={data.rows} kind={view} save={save} /> : null}
+      {view === "accounts" && ["developer", "admin"].includes(user.role) ? <AccountsSection rows={data.rows} parents={data.parents} classes={data.classes} save={save} currentUserId={user.id} canManageDevelopers={user.role === "developer"} /> : null}
       {view === "settings" ? <AccountSettings user={user} save={save} /> : null}
-      {view === "sync" && user.role === "admin" ? <SyncSection configured={data.airtableConfigured} save={save} /> : null}
+      {view === "sync" && ["developer", "admin"].includes(user.role) ? <SyncSection configured={data.airtableConfigured} save={save} /> : null}
       </>}
     </section></div>
   </main>;

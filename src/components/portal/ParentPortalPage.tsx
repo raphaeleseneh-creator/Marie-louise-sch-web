@@ -149,7 +149,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   const signOut = async () => {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError(""); clearSession();
-    try { await api("/api/auth/logout", { method: "POST" }); }
+    try { await api("/api/auth/logout", { method: "POST", body: "{}" }); }
     catch (reason) { setError(`Sign out could not be confirmed. ${message(reason)}`); }
     finally { submitting.current = false; setBusy(false); }
   };

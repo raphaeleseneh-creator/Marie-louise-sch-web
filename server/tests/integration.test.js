@@ -72,7 +72,7 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
   }
   const hash = await hashPassword(password);
   const accounts = {};
-  for (const name of ['admin','teacher','bursar','parent0','parent1']) {
+  for (const name of ['developer','admin','teacher','bursar','parent0','parent1']) {
     const role = name.startsWith('parent') ? 'parent' : name;
     accounts[name] = await insert('accounts', 'INSERT INTO accounts(full_name,email,password_hash,role,parent_id) VALUES (?,?,?,?,?)', [`${prefix}_${name}`, `${prefix}_${name}@example.invalid`, hash, role, role === 'parent' ? parents[Number(name.at(-1))] : null]);
   }
@@ -98,6 +98,35 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
     assert.match(cookies[name], /^ml_session=[a-f0-9]{64}$/);
   }
   const result = (student, subject, status = 'draft') => ({student_id:student, term_id:'reccR4ZBVMQoLeZbn', subject, ca1_score:10, ca2_score:20, exam_score:60, publication_status:status});
+  await t.test('developer retains management access and ordinary admins cannot alter developer accounts',async()=>{
+    assert.equal((await request('developer','GET','/auth/me')).data.user.role,'developer');
+    const listed=(await request('developer','GET','/accounts')).data;
+    assert.ok(listed.some(account=>account.id===accounts.developer&&account.role==='developer'));
+    await request('developer','GET','/classes');
+    await request('developer','GET','/parents');
+    await request('developer','GET','/fees');
+    await request('developer','GET','/results');
+    await request('developer','GET','/students');
+    const created=await request('developer','POST','/accounts',{full_name:`${prefix}_manager`,email:`${prefix}_manager@example.invalid`,password,role:'admin'},201);
+    owned.accounts.push(created.data.id);
+    await request('admin','PATCH',`/accounts/${accounts.developer}`,{active:false},403);
+    await request('admin','POST','/accounts',{full_name:'Not allowed',email:`${prefix}_forbidden@example.invalid`,password,role:'developer'},400);
+  });
+  await t.test('empty logout revokes sessions, clears cookies and retains origin and JSON protection',async()=>{
+    await request('developer','POST','/auth/logout',undefined,403,{Origin:'https://unexpected.example.invalid'});
+    await request('developer','GET','/auth/me');
+    const logout=await request('developer','POST','/auth/logout',undefined,200,{'Content-Type':'application/json'});
+    assert.match(logout.response.headers.get('set-cookie'),/ml_session=;/);
+    await request('developer','GET','/auth/me',undefined,401);
+    await request('developer','GET','/students',undefined,401);
+    await request(null,'POST','/auth/logout',undefined,200);
+    await request(null,'POST','/auth/login',undefined,415);
+    await request('parent0','POST','/auth/logout',{});
+    await request('parent0','GET','/auth/me',undefined,401);
+    const response=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:`${prefix}_parent0@example.invalid`,password})});
+    assert.equal(response.status,200);
+    cookies.parent0=response.headers.get('set-cookie').split(';')[0];
+  });
   async function login(name, value = password, cookieName = name) {
     const {data, response} = await request(null,'POST','/auth/login',{email:`${prefix}_${name}@example.invalid`,password:value});
     cookies[cookieName] = response.headers.get('set-cookie').split(';')[0];
