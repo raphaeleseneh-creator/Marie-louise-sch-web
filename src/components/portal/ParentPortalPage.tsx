@@ -121,17 +121,16 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     setRecords(null); setPrintDocument(null);
     const base = `/api/students/${encodeURIComponent(studentId)}`;
     void (async () => {
-      const responses = await Promise.allSettled([
-        api<Dashboard>(`${base}/dashboard`, { signal: controller.signal }),
-        api<Row[]>(`${base}/results`, { signal: controller.signal }),
-        api<Row[]>(`${base}/attendance`, { signal: controller.signal }),
-        api<Row[]>(`${base}/fees`, { signal: controller.signal }),
-        api<Row[]>(`/api/payments?student_id=${encodeURIComponent(studentId)}`, { signal: controller.signal }),
-      ] as const);
-      if (controller.signal.aborted) return;
-      const expired = responses.find((result) => result.status === "rejected" && result.reason instanceof ApiError && result.reason.status === 401);
-      if (expired?.status === "rejected") { clearSession(); setError(message(expired.reason)); return; }
-      setRecords({ id: studentId, dashboard: resource(responses[0]), results: resource(responses[1], true), attendance: resource(responses[2], true), fees: resource(responses[3], true), payments: resource(responses[4], true) });
+      try {
+        const data=await api<Omit<Records,"id">>(`${base}/portal-records`,{signal:controller.signal});
+        if(controller.signal.aborted)return;
+        if(!data||!(["dashboard","results","attendance","fees","payments"] as const).every(key=>data[key]&&typeof data[key].error==="string"))throw new Error("The school returned an unreadable response. Please refresh.");
+        setRecords({id:studentId,...data});
+      }catch(reason){
+        if(controller.signal.aborted)return;
+        if(reason instanceof ApiError&&reason.status===401){clearSession();setError(message(reason));return;}
+        const failed={data:null,error:message(reason)};setRecords({id:studentId,dashboard:failed,results:failed,attendance:failed,fees:failed,payments:failed});
+      }
     })();
     return () => controller.abort();
   }, [user, studentId, recordReload]);
@@ -183,7 +182,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   if (!user) return (
     <main className="min-h-[100dvh] bg-white text-[#27232D] lg:grid lg:grid-cols-2">
       <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#29166F] p-12 lg:flex">
-        <img src="/images/school/outdoor-learning-circle.jpg" alt="Marie Louise School pupils learning outdoors" className="absolute inset-0 h-full w-full object-cover" /><div className="absolute inset-0 bg-[#29166F]/85" />
+        <picture><source media="(min-width: 1024px)" srcSet="/images/school/outdoor-learning-circle.jpg"/><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="Marie Louise School pupils learning outdoors" className="absolute inset-0 h-full w-full object-cover" /></picture><div className="absolute inset-0 bg-[#29166F]/85" />
         <div className="relative"><SchoolLogo variant="dark" onClick={onBackToSchool} /></div>
         <div className="relative max-w-lg pb-12"><p className="mb-5 text-xs font-bold uppercase tracking-widest text-[#E9DB3D]">Parent partnership</p><h1 className="text-5xl font-extrabold leading-tight text-white">Every milestone, closer to home.</h1><p className="mt-6 leading-7 text-white/80">Follow your child&apos;s learning, attendance, school notices and fee records from one private space.</p></div>
       </section>

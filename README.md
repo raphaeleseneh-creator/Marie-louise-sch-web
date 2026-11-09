@@ -12,6 +12,8 @@ Public school website, staff dashboard and parent portal. The backend uses MySQL
 
 Run `npm run lint`, `npm run build`, and `npm run test:server` to check the project.
 
+See [performance and capacity](PERFORMANCE-AND-CAPACITY.md) for measured improvements, cache behavior, concurrency checks and hosting limits.
+
 ## School access and data
 
 The [school handover guide](SCHOOL-HANDOVER.md) explains account roles, parent–child links, and operational workflows. Staff and parents access records through the website using their own school-issued accounts. Administrators manage account access in the staff dashboard. School records and database backups belong in school-controlled storage. Share initial credentials through the school's approved secure channel and store tokens in the backend environment.

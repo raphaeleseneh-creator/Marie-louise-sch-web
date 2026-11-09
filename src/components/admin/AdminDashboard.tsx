@@ -1,3 +1,4 @@
+import {createWorkspaceCache} from "../../lib/workspace-cache";
 import {FamilyAccessCodes} from "./FamilyAccessCodes";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, BookOpenCheck, CalendarDays, CircleDollarSign, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, X } from "lucide-react";
@@ -56,6 +57,8 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const requestVersion = useRef(0);
+  const catalogCache=useRef(createWorkspaceCache());
+  useEffect(()=>{catalogCache.current.clear();},[user?.id]);
   const allowed = navigation.filter(item => user && item.roles.includes(user.role));
   const authorized = allowed.some(item => item.id === view);
   const navigate = (next: View) => {
@@ -79,15 +82,16 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
     setNotice({ error: true, text: "Your session has expired. Sign in again to continue." });
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force=false) => {
+    if(force)catalogCache.current.clear();
     if (!user || !navigation.some(item => item.id === view && item.roles.includes(user.role))) return;
     const version = ++requestVersion.current;
     setLoading(true); setLoadError("");
     try {
       const endpoint = view === "announcements" ? "/api/admin/announcements" : `/api/${view}`;
       const [students, classes, parents, rows, invoices, health] = await Promise.all([
-        api<Row[]>("/api/students"), api<Row[]>("/api/classes"),
-        ["developer", "admin"].includes(user.role) && ["parents", "accounts", "link-codes"].includes(view) ? api<Row[]>("/api/parents") : Promise.resolve([]),
+        catalogCache.current.read(user.id,"/api/students",()=>api<Row[]>("/api/students")), catalogCache.current.read(user.id,"/api/classes",()=>api<Row[]>("/api/classes")),
+        ["developer", "admin"].includes(user.role) && ["parents", "accounts", "link-codes"].includes(view) ? catalogCache.current.read(user.id,"/api/parents",()=>api<Row[]>("/api/parents")) : Promise.resolve([]),
         ["overview", "students", "classes", "parents", "settings", "sync", "link-codes"].includes(view) ? Promise.resolve([]) : api<Row[]>(endpoint),
         view === "payments" ? api<Row[]>("/api/fees") : Promise.resolve([]),
         view === "sync" ? api<{ airtableConfigured: boolean }>("/api/health") : Promise.resolve({ airtableConfigured: false }),
@@ -112,7 +116,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       }
       if (version !== requestVersion.current) return true;
       setNotice({ error: false, text: path.startsWith("/api/accounts/") && payload.active === false ? "Access removed. This person has been signed out and cannot sign in." : path.endsWith("/import") ? `CSV import complete${result?.imported != null ? `: ${result.imported} results saved` : ""}.` : path === "/api/sync/students" ? `${result?.synced ?? 0} student records synced from Airtable.` : "Changes saved successfully." });
-      await refresh();
+      await refresh(true);
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) expireSession();
@@ -153,7 +157,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       <div className="mt-4 border-t border-white/15 pt-4"><p className="truncate px-3 text-sm font-bold">{user.full_name}</p><p className="mt-1 px-3 text-xs capitalize text-white/60">{user.role}</p>{user.role === "developer" ? <a href="/parent-portal" className="mt-3 flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-[#E9DB3D] hover:bg-white/10"><ShieldCheck size={16} />Parent portal preview</a> : null}<button className="mt-3 flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-white/80 hover:bg-white/10 disabled:opacity-50" onClick={() => void logout()} disabled={loggingOut}><LogOut size={16} />{loggingOut ? "Signing out…" : "Sign out"}</button><button onClick={onBackToSchool} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-white/80 hover:bg-white/10"><ArrowLeft size={16} />School website</button></div>
     </aside>
     {menuOpen ? <button className="fixed inset-0 z-30 bg-[#160B35]/50 lg:hidden" aria-label="Close navigation overlay" onClick={() => setMenuOpen(false)} /> : null}
-    <div className="lg:pl-[270px]"><header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="flex items-center gap-3"><button className={secondaryClass} aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} style={{ padding: 10 }}><Menu size={20} className="lg:hidden" /><span className="hidden lg:inline text-xs">Marie Louise School</span></button><h1 className="text-xl font-extrabold text-[#29166F]">{allowed.find(item => item.id === view)?.label || "Workspace"}</h1></div><button className={secondaryClass} disabled={loading} onClick={() => void refresh()} aria-label="Refresh records"><RefreshCw size={16} className={loading ? "animate-spin motion-reduce:animate-none" : ""} /><span className="hidden sm:inline">Refresh</span></button></header>
+    <div className="lg:pl-[270px]"><header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="flex items-center gap-3"><button className={secondaryClass} aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} style={{ padding: 10 }}><Menu size={20} className="lg:hidden" /><span className="hidden lg:inline text-xs">Marie Louise School</span></button><h1 className="text-xl font-extrabold text-[#29166F]">{allowed.find(item => item.id === view)?.label || "Workspace"}</h1></div><button className={secondaryClass} disabled={loading} onClick={() => void refresh(true)} aria-label="Refresh records"><RefreshCw size={16} className={loading ? "animate-spin motion-reduce:animate-none" : ""} /><span className="hidden sm:inline">Refresh</span></button></header>
     <section className="mx-auto max-w-[1700px] px-4 py-7 sm:px-8"><p className="mb-6 text-sm text-[#625B69]">{descriptions[view]}</p>{noticeElement}
       {!authorized ? <p role="alert">This section is not available to your role.</p> : loading ? <p role="status" className="rounded-xl border border-[#E5DFE9] bg-white p-8 text-sm text-[#625B69]">Loading records…</p> : loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-white p-6"><p className="mb-4 text-sm text-red-800">{loadError}</p><button className={buttonClass} onClick={() => void refresh()}>Try again</button></div> : <>
       {view === "overview" ? <div><div className="mb-8 flex flex-wrap gap-10 border-y border-[#E5DFE9] py-6"><div><p className="text-sm text-[#625B69]">Students in your scope</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.students.length}</p></div><div><p className="text-sm text-[#625B69]">Available classes</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.classes.length}</p></div><div><p className="text-sm text-[#625B69]">Signed in as</p><p className="mt-2 text-lg font-bold capitalize text-[#29166F]">{user.role}</p></div></div><h2 className="mb-4 text-xl font-extrabold text-[#29166F]">Your workspace</h2><div className="grid gap-x-8 sm:grid-cols-2">{allowed.filter(item => item.id !== "overview").map(item => <button key={item.id} className="group flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] py-4 text-left" onClick={() => { navigate(item.id); }}><span><span className="block font-bold text-[#29166F]">{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{descriptions[item.id]}</span></span><span aria-hidden="true" className="text-xl text-[#581C87] transition-transform group-hover:translate-x-1">→</span></button>)}</div></div> : null}
@@ -167,7 +171,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       {view === "payments" && finance.includes(user.role) ? <PaymentsSection rows={data.rows} invoices={data.invoices} save={save} /> : null}
       {(view === "admissions" || view === "tours") && ["developer", "admin"].includes(user.role) ? <RequestsSection rows={data.rows} kind={view} save={save} /> : null}
       {view === "accounts" && ["developer", "admin"].includes(user.role) ? <AccountsSection rows={data.rows} parents={data.parents} classes={data.classes} save={save} currentUserId={user.id} canManageDevelopers={user.role === "developer"} /> : null}
-      {view === "link-codes" && ["developer","admin"].includes(user.role) ? <FamilyAccessCodes parents={data.parents} students={data.students}/> : null}
+      {view === "link-codes" && ["developer","admin"].includes(user.role) ? <FamilyAccessCodes parents={data.parents} students={data.students} onRecordsChanged={()=>catalogCache.current.clear()}/> : null}
       {view === "settings" ? <AccountSettings user={user} save={save} /> : null}
       {view === "sync" && ["developer", "admin"].includes(user.role) ? <SyncSection configured={data.airtableConfigured} save={save} /> : null}
       </>}

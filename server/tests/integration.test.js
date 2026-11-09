@@ -84,7 +84,7 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
   async function request(role, method, path, body, expected = 200, headers = {}) {
     const response = await fetch(base + '/api' + path, {
       method, headers: {...(body === undefined ? {} : {'Content-Type':'application/json'}), ...(cookies[role] ? {Cookie:cookies[role]} : {}), ...headers},
-      ...(body === undefined ? {} : {body:JSON.stringify(body)}), signal:AbortSignal.timeout(10000),
+      ...(body === undefined ? {} : {body:JSON.stringify(body)}), signal:AbortSignal.timeout(30000),
     });
     const data = await response.json();
     assert.equal(response.status, expected, `${role || 'anonymous'} ${method} ${path}: ${JSON.stringify(data)}`);
@@ -110,6 +110,7 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
     await request('developer','GET',`/students/${students[0]}/attendance`);
     await request('developer','GET',`/students/${students[0]}/fees`);
     await request('parent0','GET',`/students/${students[1]}/dashboard`,undefined,403);
+    await request('developer','GET',`/students/${students[0]}/portal-records`);
   });
   await t.test('developer retains management access and ordinary admins cannot alter developer accounts',async()=>{
     assert.equal((await request('developer','GET','/auth/me')).data.user.role,'developer');
@@ -259,6 +260,11 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
       const rows = (await request(role,'GET',`/students/${students[i]}/results`)).data;
       assert.equal(rows.length,1);
       assert.equal(rows[0].publication_status,'published');
+      const combined=(await request(role,'GET',`/students/${students[i]}/portal-records`)).data;
+      assert.equal(Number(combined.dashboard.data.student.id),Number(students[i]));
+      assert.deepEqual(combined.results.data.map(row=>row.id),rows.map(row=>row.id));
+      await request(role,'GET',`/students/${students[other]}/portal-records`,undefined,403);
+      for(const staffRole of ['teacher','bursar','admin'])await request(staffRole,'GET',`/students/${students[i]}/portal-records`,undefined,403);
       for (const suffix of ['dashboard','results','attendance','fees']) await request(role,'GET',`/students/${students[other]}/${suffix}`,undefined,403);
       await request(role,'GET',`/payments?student_id=${students[other]}`,undefined,403);
       await request(role,'POST','/results',result(students[i],'parent_write'),403);

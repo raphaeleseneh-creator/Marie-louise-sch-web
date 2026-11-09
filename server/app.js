@@ -1,3 +1,4 @@
+import {installPortalRecords} from './portal-records.js';
 import {readWithReconnect} from './resilient-read.js';
 import express from 'express';
 import {randomBytes} from 'node:crypto';
@@ -34,6 +35,7 @@ app.get('/api/health',wrap(async(_req,res)=>{await readWithReconnect(pool,'SELEC
 app.use(identify);
 installGoogleAuth(app,{wrap,limit});
 installEnrollment(app,{wrap,limit});
+installPortalRecords(app,wrap);
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const address=email(req.body.email),password=text(req.body.password,'Password',200);

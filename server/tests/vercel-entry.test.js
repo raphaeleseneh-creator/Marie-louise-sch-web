@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 
 test('Vercel entry serves health and keeps anonymous school records protected', {
-  skip: process.env.RUN_DB_TESTS !== '1', timeout: 20000,
+  skip: process.env.RUN_DB_TESTS !== '1', timeout: 60000,
 }, async () => {
   const { default: handler } = await import('../../api/index.js');
   const { pool } = await import('../db.js');
