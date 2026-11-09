@@ -1,3 +1,4 @@
+import {readWithReconnect} from './resilient-read.js';
 import { randomBytes, scrypt as rawScrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pool } from './db.js';
@@ -19,7 +20,7 @@ export async function issueSession(req,res,account) {
 export async function identify(req,_res,next) {
   try {
     const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);
-    if(token && /^[a-f0-9]{64}$/.test(token)) { const [[user]]=await pool.query(`SELECT a.id,a.full_name,a.email,a.role,a.parent_id,a.registration_pending FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.expires_at>NOW() AND ((a.active=TRUE AND a.registration_pending=FALSE AND (a.role<>'parent' OR EXISTS (SELECT 1 FROM parents p WHERE p.id=a.parent_id AND p.status='active'))) OR (a.active=FALSE AND a.registration_pending=TRUE AND a.role='parent' AND a.parent_id IS NULL))`,[digest(token)]);req.user=user||null; }
+    if(token && /^[a-f0-9]{64}$/.test(token)) { const [[user]]=await readWithReconnect(pool,`SELECT a.id,a.full_name,a.email,a.role,a.parent_id,a.registration_pending FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.expires_at>NOW() AND ((a.active=TRUE AND a.registration_pending=FALSE AND (a.role<>'parent' OR EXISTS (SELECT 1 FROM parents p WHERE p.id=a.parent_id AND p.status='active'))) OR (a.active=FALSE AND a.registration_pending=TRUE AND a.role='parent' AND a.parent_id IS NULL))`,[digest(token)]);req.user=user||null; }
     next();
   } catch(error) {next(error);}
 }

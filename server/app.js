@@ -1,3 +1,4 @@
+import {readWithReconnect} from './resilient-read.js';
 import express from 'express';
 import {randomBytes} from 'node:crypto';
 import {pool} from './db.js';
@@ -29,14 +30,14 @@ const all=roles('admin','teacher','bursar','parent'), staff=roles('admin','teach
 const buckets=new Map();
 function limit(prefix,max){return(req,res,next)=>{const key=prefix+req.ip;const now=Date.now();let bucket=buckets.get(key);if(!bucket||bucket.until<now){bucket={count:0,until:now+15*60*1000};buckets.set(key,bucket);}if(++bucket.count>max)return res.status(429).json({error:'Too many requests. Please try again in 15 minutes.'});next();};}
 const cleanup=setInterval(()=>{for(const [key,b]of buckets)if(b.until<Date.now())buckets.delete(key);},60000);cleanup.unref();
+app.get('/api/health',wrap(async(_req,res)=>{await readWithReconnect(pool,'SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE)});}));
 app.use(identify);
 installGoogleAuth(app,{wrap,limit});
 installEnrollment(app,{wrap,limit});
-app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE)});}));
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const address=email(req.body.email),password=text(req.body.password,'Password',200);
-  const [[account]]=await pool.query('SELECT * FROM accounts WHERE email=? AND (active=TRUE OR (role=\'parent\' AND active=FALSE AND registration_pending=TRUE AND parent_id IS NULL))',[address]);
+  const [[account]]=await readWithReconnect(pool,'SELECT * FROM accounts WHERE email=? AND (active=TRUE OR (role=\'parent\' AND active=FALSE AND registration_pending=TRUE AND parent_id IS NULL))',[address]);
   const valid=account?await verifyPassword(password,account.password_hash):await verifyPassword(password,await hashPassword('unused-password-padding'));
   if(!account||!valid)fail(401,'Email or password is incorrect.');
   if(account.role==='parent'&&!account.registration_pending){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}

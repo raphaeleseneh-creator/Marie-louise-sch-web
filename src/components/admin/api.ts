@@ -1,3 +1,4 @@
+import {fetchSignInRead} from "../../lib/sign-in-service";
 export type Role = "admin" | "teacher" | "bursar" | "parent" | "developer";
 export type StaffUser = { id: number; full_name: string; role: Role; parent_id?: number | null };
 export type Row = { id: number; [key: string]: string | number | boolean | number[] | null | undefined };
@@ -10,7 +11,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const headers = new Headers(options.headers);
   if (options.body || (options.method && !["GET", "HEAD"].includes(options.method.toUpperCase()))) headers.set("Content-Type", "application/json");
   const mutation=Boolean(options.method && !["GET", "HEAD"].includes(options.method.toUpperCase()));
-  const response = await fetch(path, { ...options, ...(mutation && options.body == null ? {body: "{}"} : {}), headers, credentials: "same-origin", cache: "no-store" });
+  const send=path==="/api/auth/me"?fetchSignInRead:fetch;
+  const response = await send(path, { ...options, ...(mutation && options.body == null ? {body: "{}"} : {}), headers, credentials: "same-origin", cache: "no-store" });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const details = Array.isArray(payload?.errors)

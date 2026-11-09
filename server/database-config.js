@@ -29,7 +29,7 @@ export function databaseOptions(env) {
     maxIdle: env.VERCEL ? 2 : 10,
     idleTimeout: 10000,
     dateStrings: true,
-    connectTimeout: 5000,
+    connectTimeout: tls ? 10000 : 5000,
     queueLimit: 50,
   };
 }

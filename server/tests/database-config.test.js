@@ -22,6 +22,7 @@ test('remote connections verify TLS and support provider CA certificates', () =>
   assert.equal(options.ssl.rejectUnauthorized, true);
   assert.equal(options.ssl.ca, 'line1\nline2');
   assert.equal(options.connectionLimit, 5);
+  assert.equal(options.connectTimeout,10000);
   assert.equal(options.dateStrings, true);
 });
 
@@ -30,6 +31,7 @@ test('local development retains a normal local MySQL connection', () => {
   assert.equal(options.host, '127.0.0.1');
   assert.equal(options.port, 3306);
   assert.equal(options.connectionLimit, 10);
+  assert.equal(options.connectTimeout,5000);
   assert.equal(options.ssl, undefined);
 });
 

@@ -1,3 +1,4 @@
+import {fetchSignInRead} from "../../lib/sign-in-service";
 import {ParentRegistration,LinkChildren} from "./ParentAccountSetup";
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, CreditCard, Eye, EyeOff, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
@@ -33,7 +34,8 @@ const date = (value: Row[string]) => {
 const message = (error: unknown) => error instanceof Error ? error.message : "Unable to reach the school. Please try again.";
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
+  const send=path==="/api/auth/me"?fetchSignInRead:fetch;
+  const response = await send(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(body?.error || (response.status === 401 ? "Your session has ended. Please sign in again." : "Unable to load school records. Please try again."), response.status);
   if (body === null && response.status !== 204) throw new Error("The school returned an unreadable response. Please try again.");
