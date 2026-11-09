@@ -1,3 +1,4 @@
+import {ParentRegistration,LinkChildren} from "./ParentAccountSetup";
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, CreditCard, Eye, EyeOff, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
 import { GoogleSignIn } from "../ui/GoogleSignIn";
@@ -12,9 +13,10 @@ type Student = Row & { id: number; first_name: string; last_name: string; studen
 type Dashboard = { student: Student; attendance: { total_days: number; days_present: number; days_absent: number; other_days: number }; fees: { total_due: number | string; total_paid: number | string }; announcements: Row[] };
 type Resource<T> = { data: T | null; error: string };
 type Records = { id: string; dashboard: Resource<Dashboard>; results: Resource<Row[]>; attendance: Resource<Row[]>; fees: Resource<Row[]>; payments: Resource<Row[]> };
-type View = "overview" | "reports" | "fees" | "notices" | "security";
+type View = "overview" | "reports" | "fees" | "notices" | "security" | "link";
 type PrintDocument = { kind: "report"; student: Student; results: Row[]; attendance: Row[] } | { kind: "receipt"; student: Student; receipt: Row; invoice: string };
 const navigation = [
+  {id:"link",label:"Link children",icon:ShieldCheck},
   { id: "overview", label: "Overview", icon: Home }, { id: "reports", label: "Reports & attendance", icon: FileText },
   { id: "fees", label: "Fees & receipts", icon: CreditCard }, { id: "notices", label: "Notices", icon: Bell },
   { id: "security", label: "Change password", icon: ShieldCheck },
@@ -53,6 +55,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   const [checking, setChecking] = useState(true);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
   const [sessionCheck, setSessionCheck] = useState(0);
+  const [registering,setRegistering]=useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loginNotice, setLoginNotice] = useState("");
@@ -78,7 +81,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     setChecking(true);
     setServiceUnavailable(false);
     checkSchoolService(controller.signal).then(() => api<{ user: User }>("/api/auth/me", { signal: controller.signal }))
-      .then(({ user: account }) => { if (!controller.signal.aborted) setUser(parentUser(account)); })
+      .then(({ user: account }) => { if (!controller.signal.aborted) { setUser(parentUser(account)); if(account.registration_pending) setView("link"); } })
       .catch((reason) => {
         if (controller.signal.aborted) return;
         if (!(reason instanceof ApiError)) setServiceUnavailable(true);
@@ -142,7 +145,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     try {
       await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: String(values.get("email") || "").trim(), password: values.get("password") }) });
       const session = await api<{ user: User }>("/api/auth/me");
-      setUser(parentUser(session.user)); form.reset();
+      setUser(parentUser(session.user)); setView(session.user.registration_pending ? "link" : "overview"); form.reset();
     } catch (reason) {
       if (reason instanceof TypeError || (reason instanceof ApiError && reason.status >= 500)) setServiceUnavailable(true);
       else setError(message(reason));
@@ -175,7 +178,6 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   };
 
   if (checking) return <main className="flex min-h-screen items-center justify-center bg-[#F4F1F7] text-[#29166F]"><p role="status">Checking your session…</p></main>;
-  if (user?.registration_pending) return <main className="flex min-h-screen items-center justify-center bg-[#F4F1F7] p-6"><section className="w-full max-w-lg rounded-xl bg-white p-8 text-[#29166F]"><ShieldCheck size={40} /><h1 className="mt-5 text-2xl font-extrabold">Waiting for school approval</h1><p className="mt-4 leading-7">Welcome, {user.full_name}. Your account has been created. The school must verify your guardian record and child links before any pupil information is available.</p><p className="mt-4 text-sm leading-6">Please contact the school office to confirm your details. Each child must be linked by the school. After approval, sign in again.</p><a className="mt-4 inline-block font-bold underline" href={`mailto:${schoolConfig.email}?subject=Parent%20account%20approval`}>Contact the school office</a><div className="mt-6 flex flex-wrap gap-3"><button className={buttonClass} onClick={() => window.location.reload()}>Check approval status</button><button className={buttonClass} onClick={() => void signOut()} disabled={busy}>Sign out</button></div>{error ? <p role="alert" className="mt-4 text-red-700">{error}</p> : null}</section></main>;
   if (!user) return (
     <main className="min-h-[100dvh] bg-white text-[#27232D] lg:grid lg:grid-cols-2">
       <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#29166F] p-12 lg:flex">
@@ -186,14 +188,15 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
       <section className="flex min-h-[100dvh] flex-col px-5 py-6 sm:px-12">
         <div className="lg:hidden"><SchoolLogo onClick={onBackToSchool} /></div><button onClick={onBackToSchool} className="mt-6 inline-flex items-center gap-2 self-start text-sm font-bold text-[#581C87]"><ArrowLeft size={16} />School website</button>
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
-          <ShieldCheck className="mb-5 text-[#581C87]" size={40} /><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Parent portal</p><h2 className="mt-2 text-4xl font-extrabold text-[#29166F]">Welcome back.</h2><p className="mt-3 text-sm leading-6 text-[#625B69]">The school office sets up your first login and gives you your sign-in details. <a className="font-bold text-[#581C87] underline" href={`mailto:${schoolConfig.email}?subject=Parent%20portal%20account%20help`}>Email the school for account or password help</a>.</p>
+          <ShieldCheck className="mb-5 text-[#581C87]" size={40} /><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Parent portal</p><h2 className="mt-2 text-4xl font-extrabold text-[#29166F]">Welcome back.</h2><p className="mt-3 text-sm leading-6 text-[#625B69]">Create an account or sign in, then link your children using the details supplied by the school. <a className="font-bold text-[#581C87] underline" href={`mailto:${schoolConfig.email}?subject=Parent%20portal%20account%20help`}>Email the school for account or password help</a>.</p>
           {serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}
-          <form onSubmit={signIn} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
+          {registering ? <ParentRegistration cancel={() => setRegistering(false)}/> : <form onSubmit={signIn} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
             <label className="block text-sm font-bold">Email address<input name="email" type="email" autoComplete="username" required disabled={busy} className={inputClass} placeholder="parent@email.com" /></label>
             <div><label htmlFor="portal-password" className="text-sm font-bold">Password</label><div className="relative"><input id="portal-password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required disabled={busy} className={`${inputClass} pr-12`} /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"} className="absolute bottom-0 right-1 flex h-12 w-11 items-center justify-center text-[#625B69]">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>
             {loginNotice ? <p role="status" className="text-sm text-emerald-700">{loginNotice}</p> : null}
             {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}<button disabled={busy} className={`${buttonClass} w-full`}>{busy ? "Please wait…" : "Sign in securely"}</button>
-          </form>
+          </form>}
+          {!serviceUnavailable && !registering ? <button type="button" className="mt-4 min-h-11 text-sm font-bold text-[#581C87]" onClick={() => setRegistering(true)}>Create parent account</button> : null}
           {!serviceUnavailable ? <GoogleSignIn portal="parent" /> : null}
         </div><p className="border-t border-[#E8E2ED] pt-5 text-center text-xs text-[#625B69]">Private access for Marie Louise School families</p>
       </section>
@@ -202,7 +205,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
 
   const selected = children.find((child) => String(child.id) === studentId);
   const developerPreview = user.role === "developer";
-  const portalNavigation = developerPreview ? navigation.filter(item => item.id !== "security") : navigation;
+  const portalNavigation = developerPreview ? navigation.filter(item => !["security","link"].includes(item.id)) : navigation;
   const current = records?.id === studentId ? records : null;
   const filteredResults = current?.results.data?.filter(row => matchesAcademicTerm(row.term_id, resultTerm));
   const dashboard = current?.dashboard.data;
@@ -217,14 +220,14 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
         <section className="min-w-0 p-4 sm:p-8">
           {developerPreview ? <aside aria-label="Developer preview" className="mb-6 rounded-lg border-l-4 border-[#E9DB3D] bg-[#29166F] p-5 text-white"><h2 className="font-extrabold">Developer preview · Read-only school records</h2><p className="mt-2 text-sm leading-6 text-white/85">Choose a student to inspect the parent-facing reports, attendance, fees and notices. You are signed in as Developer; this does not grant a parent account access to that student.</p><a href="/admin" className="mt-3 inline-flex min-h-11 items-center font-bold text-[#E9DB3D] underline">Back to staff workspace</a></aside> : null}
           <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">{developerPreview ? "Preview student" : "Child"}<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{developerPreview ? <option value="">Choose a student to preview</option> : null}{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
-          {view === "security" ? <form onSubmit={changePassword} className="max-w-md space-y-5" aria-busy={busy}>
+          {(view === "link" || Boolean(user.registration_pending)) && !developerPreview ? <LinkChildren done={() => window.location.reload()}/> : view === "security" ? <form onSubmit={changePassword} className="max-w-md space-y-5" aria-busy={busy}>
             <p className="text-sm leading-6 text-[#625B69]">Choose a password of at least 12 characters. You will need to sign in again after saving.</p>
             <label className="block text-sm font-bold">Current password<input name="current_password" type="password" autoComplete="current-password" required disabled={busy} className={inputClass} /></label>
             <label className="block text-sm font-bold">New password<input name="new_password" type="password" autoComplete="new-password" minLength={12} required disabled={busy} className={inputClass} /></label>
             <label className="block text-sm font-bold">Confirm new password<input name="confirm_password" type="password" autoComplete="new-password" minLength={12} required disabled={busy} className={inputClass} /></label>
             {passwordError ? <p role="alert" className="text-sm text-red-700">{passwordError}</p> : null}
             <button disabled={busy} className={buttonClass}>{busy ? "Saving password…" : "Change password"}</button>
-          </form> : childrenLoading ? <p role="status">{developerPreview ? "Loading students for preview…" : "Loading your children…"}</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message={developerPreview ? "No active students are available to preview." : "No children are linked to your account. Please contact the school office."} /> : !studentId ? <Empty message="Choose a student above to preview their parent portal." /> : <>
+          </form> : childrenLoading ? <p role="status">{developerPreview ? "Loading students for preview…" : "Loading your children…"}</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message={developerPreview ? "No active students are available to preview." : "No children are linked yet. Choose Link children to enter your school-issued student IDs and private code."} /> : !studentId ? <Empty message="Choose a student above to preview their parent portal." /> : <>
             {selected ? <div className="mb-6 border-l-4 border-[#E9DB3D] pl-4"><h2 className="text-lg font-extrabold text-[#29166F]">{nameOf(selected)}</h2><p className="mt-1 text-sm text-[#625B69]">{selected.class_name || "Class not assigned"} · {selected.student_code}</p></div> : null}
             {!current ? <p role="status" className="py-8">Loading school records…</p> : <>
               <div className="mb-5 flex justify-end"><button onClick={retry} className="text-sm font-bold text-[#581C87]">Refresh records</button></div>

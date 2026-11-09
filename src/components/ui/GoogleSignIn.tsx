@@ -48,6 +48,6 @@ export function GoogleSignIn({ portal }: { portal: 'parent' | 'staff' }) {
     <div ref={button} className={busy ? 'pointer-events-none opacity-50' : ''} />
     {busy ? <p role="status" className="mt-3 text-sm">Signing in securely…</p> : null}
     {error ? <div className="mt-3 text-sm"><p role="alert" className="text-red-700">{error}</p><button type="button" onClick={() => setRetry(value => value + 1)} className="mt-2 min-h-11 font-bold text-[#581C87]">Try Google again</button></div> : null}
-    <p className="mt-3 text-xs leading-5 text-[#625B69]">{portal === 'parent' ? 'New here? Register with Google. The school must verify your guardian record before you can see any child’s information.' : 'Use the Google account associated with your school account. Staff access is assigned by the school.'}</p>
+    <p className="mt-3 text-xs leading-5 text-[#625B69]">{portal === 'parent' ? 'Create your account with Google, then link your children using school-issued student IDs and a private linking code.' : 'Use the Google account associated with your school account. Staff access is assigned by the school.'}</p>
   </section>;
 }

@@ -6,6 +6,7 @@ import {text,number,choice,date,email,resultData,parseCsv} from './validation.js
 import {fetchAllAirtableRecords,airtableField} from './airtable.js';
 import { resolveTerm, termLabel } from './academic-calendar.js';
 import { installGoogleAuth } from './google-auth.js';
+import {installEnrollment} from './enrollment.js';
 export const app=express();
 app.disable('x-powered-by');
 app.set('trust proxy',false);
@@ -30,14 +31,15 @@ function limit(prefix,max){return(req,res,next)=>{const key=prefix+req.ip;const 
 const cleanup=setInterval(()=>{for(const [key,b]of buckets)if(b.until<Date.now())buckets.delete(key);},60000);cleanup.unref();
 app.use(identify);
 installGoogleAuth(app,{wrap,limit});
+installEnrollment(app,{wrap,limit});
 app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE)});}));
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const address=email(req.body.email),password=text(req.body.password,'Password',200);
-  const [[account]]=await pool.query('SELECT * FROM accounts WHERE email=? AND active=TRUE',[address]);
+  const [[account]]=await pool.query('SELECT * FROM accounts WHERE email=? AND (active=TRUE OR (role=\'parent\' AND active=FALSE AND registration_pending=TRUE AND parent_id IS NULL))',[address]);
   const valid=account?await verifyPassword(password,account.password_hash):await verifyPassword(password,await hashPassword('unused-password-padding'));
   if(!account||!valid)fail(401,'Email or password is incorrect.');
-  if(account.role==='parent'){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}
+  if(account.role==='parent'&&!account.registration_pending){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}
   const previous=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);
   if(previous)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(previous)]);
   await pool.query('DELETE FROM sessions WHERE expires_at<NOW()');
@@ -53,24 +55,6 @@ app.get('/api/developer/parent-portal/students',roles('developer'),wrap(async(_r
   const [rows]=await pool.query("SELECT s.id,s.student_code,s.first_name,s.last_name,c.name class_name FROM students s LEFT JOIN classes c ON c.id=s.class_id WHERE s.enrollment_status='active' ORDER BY s.last_name,s.first_name");
   res.json(rows);
 }));
-app.post('/api/accounts/:id/approve-parent',requireAdmin,wrap(async(req,res)=>{
-  const id=positiveId(req.params.id),parentId=positiveId(req.body.parent_id),confirmed=req.body.verified_student_ids;
-  if(!id||!parentId||!Array.isArray(confirmed)||!confirmed.length||confirmed.some(x=>!positiveId(x))||req.body.guardian_verified!==true)fail(400,'Verify the guardian and every listed child before approval.');
-  const db=await pool.getConnection();
-  try {
-    await db.beginTransaction();
-    const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);
-    if(!account?.registration_pending||account.role!=='parent'||account.active||account.parent_id)fail(409,'This account is not awaiting parent approval.');
-    const [[parent]]=await db.query("SELECT id FROM parents WHERE id=? AND status='active' FOR UPDATE",[parentId]);
-    if(!parent)fail(400,'Choose an active guardian record.');
-    const [links]=await db.query("SELECT ps.student_id FROM parent_students ps JOIN students s ON s.id=ps.student_id WHERE ps.parent_id=? AND s.enrollment_status='active' FOR UPDATE",[parentId]);
-    const actual=links.map(x=>Number(x.student_id)).sort((a,b)=>a-b),expected=[...new Set(confirmed.map(Number))].sort((a,b)=>a-b);
-    if(JSON.stringify(actual)!==JSON.stringify(expected))fail(409,'The linked children have changed. Review them again.');
-    await db.query('UPDATE accounts SET parent_id=?,registration_pending=FALSE,active=TRUE WHERE id=?',[parentId,id]);
-    await db.query('DELETE FROM sessions WHERE account_id=?',[id]);
-    await db.commit();res.json({ok:true});
-  }catch(error){await db.rollback();throw error;}finally{db.release();}
-}));
 app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const b=req.body,role=choice(b.role,['admin','teacher','bursar','parent'],'role'),password=text(b.password,'Password',200);if(password.length<12)fail(400,'Use a password of at least 12 characters.');
   const parentId=role==='parent'?positiveId(b.parent_id):null;if(role==='parent'&&!parentId)fail(400,'Link this account to a parent record.');
@@ -78,7 +62,7 @@ app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const hash=await hashPassword(password),db=await pool.getConnection();
   try{await db.beginTransaction();const [result]=await db.query('INSERT INTO accounts(full_name,email,password_hash,role,parent_id) VALUES (?,?,?,?,?)',[text(b.full_name,'Name',150),email(b.email),hash,role,parentId]);if(role==='teacher')for(const id of new Set(classIds))await db.query('INSERT INTO staff_classes(account_id,class_id) VALUES (?,?)',[result.insertId,id]);await db.commit();res.status(201).json({id:result.insertId});}catch(error){await db.rollback();throw error;}finally{db.release();}
 }));
-app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(account.role==='developer'&&req.user.role!=='developer')fail(403,'Only a developer can manage developer accounts.');if(account.registration_pending)fail(409,'Use the verified parent approval form for this account.');if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
+app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(account.role==='developer'&&req.user.role!=='developer')fail(403,'Only a developer can manage developer accounts.');if(account.registration_pending){if(req.body.active!==false)fail(409,'Parents link their children themselves using school-issued details.');await db.query('UPDATE accounts SET active=FALSE,registration_pending=FALSE WHERE id=?',[id]);await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});return;}if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
 app.get('/api/students',all,wrap(async(req,res)=>{const scope=studentScope(req.user);const params=[...scope.params];let filter=scope.sql;if(req.query.class_id){filter+=' AND s.class_id=?';params.push(number(req.query.class_id,'Class',1));}const [rows]=await pool.query(`SELECT s.*,c.name AS class_name FROM students s LEFT JOIN classes c ON c.id=s.class_id WHERE ${filter} ORDER BY s.last_name,s.first_name`,params);res.json(rows);}));
 app.get('/api/classes',staff,wrap(async(req,res)=>{const teacher=req.user.role==='teacher';const [rows]=await pool.query(`SELECT id,name FROM classes ${teacher?'WHERE id IN (SELECT class_id FROM staff_classes WHERE account_id=?)':''} ORDER BY name`,teacher?[req.user.id]:[]);res.json(rows);}));
 app.post('/api/classes',requireAdmin,wrap(async(req,res)=>{const name=text(req.body.name,'Class name',100);const [r]=await pool.query('INSERT INTO classes(name) VALUES (?)',[name]);res.status(201).json({id:r.insertId,name});}));

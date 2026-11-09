@@ -24,7 +24,7 @@ test('pending registrations are denied by every role guard and student scope', a
   await assert.rejects(()=>canAccessStudent(user,1,{query(){throw Error('Must not query pupil records');}}),e=>e.status===403);
 });
 
-test('Google API registration, browser binding, replay protection and guardian approval', {skip:process.env.RUN_DB_TESTS!=='1',timeout:Number(process.env.DB_TEST_TIMEOUT_MS||120000)}, async t => {
+test('Google API registration, browser binding, replay protection and private child linking', {skip:process.env.RUN_DB_TESTS!=='1',timeout:Number(process.env.DB_TEST_TIMEOUT_MS||120000)}, async t => {
   const { OAuth2Client } = await import('google-auth-library');
   const { pool } = await import('../db.js');
   const { app } = await import('../app.js');
@@ -33,7 +33,7 @@ test('Google API registration, browser binding, replay protection and guardian a
   const prefix=`google_test_${randomUUID().replaceAll('-','').slice(0,12)}`;
   const address=`${prefix}@gmail.com`,password='Fixture-password-123!';
   const nonces=[];
-  let claims,server,adminId,parentId,studentId,pendingId;
+  let claims,server,adminId,parentId,studentId,pendingId,selfRegisteredId;
   process.env.GOOGLE_CLIENT_ID='test-only.apps.googleusercontent.com';
   OAuth2Client.prototype.verifyIdToken=async function(options){assert.equal(options.audience,process.env.GOOGLE_CLIENT_ID);if(options.idToken!=='test-only-token')throw Error('Invalid signature');return{getPayload:()=>claims};};
   t.after(async()=>{
@@ -41,8 +41,9 @@ test('Google API registration, browser binding, replay protection and guardian a
     if(oldClient===undefined)delete process.env.GOOGLE_CLIENT_ID;else process.env.GOOGLE_CLIENT_ID=oldClient;
     if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
     try {
+      if(parentId)await pool.query('DELETE FROM parent_link_codes WHERE parent_id=?',[parentId]);
       for(const nonce of nonces)await pool.query('DELETE FROM google_login_nonces WHERE nonce_hash=?',[digest(nonce)]);
-      for(const id of [adminId,pendingId].filter(Boolean)){await pool.query('DELETE FROM sessions WHERE account_id=?',[id]);await pool.query('DELETE FROM accounts WHERE id=?',[id]);}
+      for(const id of [adminId,pendingId,selfRegisteredId].filter(Boolean)){await pool.query('DELETE FROM sessions WHERE account_id=?',[id]);await pool.query('DELETE FROM accounts WHERE id=?',[id]);}
       if(parentId)await pool.query('DELETE FROM parent_students WHERE parent_id=?',[parentId]);
       if(studentId)await pool.query('DELETE FROM students WHERE id=?',[studentId]);
       if(parentId)await pool.query('DELETE FROM parents WHERE id=?',[parentId]);
@@ -71,12 +72,9 @@ test('Google API registration, browser binding, replay protection and guardian a
   const [parent]=await pool.query("INSERT INTO parents(full_name,email,status) VALUES (?,?,'active')",[prefix,address]);parentId=parent.insertId;
   const [student]=await pool.query("INSERT INTO students(student_code,first_name,last_name,enrollment_status) VALUES (?,?,?,'active')",[prefix,'Synthetic','Child']);studentId=student.insertId;
   await pool.query("INSERT INTO parent_students(parent_id,student_id,relationship,is_primary_guardian) VALUES (?,?,'Parent',TRUE)",[parentId,studentId]);
-  const approval={parent_id:parentId,guardian_verified:true,verified_student_ids:[studentId]};
-  assert.equal((await call(`/api/accounts/${pendingId}/approve-parent`,{...approval,verified_student_ids:[studentId+1]},adminLogin.cookie)).status,409,'child list must match');
-  assert.equal((await call(`/api/accounts/${pendingId}/approve-parent`,{...approval,guardian_verified:false},adminLogin.cookie)).status,400,'explicit verification required');
-  assert.equal((await call(`/api/accounts/${pendingId}/approve-parent`,approval,registration.cookie)).status,403,'parents cannot self-approve');
-  assert.equal((await call(`/api/accounts/${pendingId}/approve-parent`,approval,adminLogin.cookie)).status,200);
-  assert.equal((await call('/api/auth/me',null,registration.cookie)).status,401,'approval revokes pending session');
+  const grant=await call(`/api/parents/${parentId}/link-code`,{student_ids:[studentId]},adminLogin.cookie);assert.equal(grant.status,200);
+  assert.equal((await call('/api/auth/parent/link-children',{student_codes:[prefix],link_code:grant.body.link_code},registration.cookie)).status,200);
+  assert.equal(Number((await call('/api/auth/me',null,registration.cookie)).body.user.registration_pending),0,'linking activates the same session without approval');
   async function signIn(portal='parent',overrides={}){const ch=await call('/api/auth/google/challenge',{portal});claims={sub:prefix,email:address,email_verified:true,nonce:ch.body.nonce,...overrides};return call('/api/auth/google',{credential:'test-only-token',nonce:ch.body.nonce},ch.cookie);}
   const approved=await signIn();assert.equal(approved.status,200);assert.equal(approved.body.pending,false);
   assert.equal((await call(`/api/parents/${parentId}/children`,null,approved.cookie)).body[0].id,studentId);
@@ -89,4 +87,7 @@ test('Google API registration, browser binding, replay protection and guardian a
   const staffLogin=await signIn('staff',{sub:prefix+'admin',email:`${prefix}admin@gmail.com`});
   assert.equal(staffLogin.status,200,'existing authoritative Gmail staff account linked');
   assert.equal((await call('/api/auth/me',null,staffLogin.cookie)).body.user.role,'admin','Google preserves school-assigned role');
+  const fresh=await call('/api/auth/parent/register',{full_name:'Synthetic Self-registered Parent',email:`${prefix}self@gmail.com`,password});assert.equal(fresh.status,201);
+  selfRegisteredId=(await call('/api/auth/me',null,fresh.cookie)).body.user.id;
+  assert.equal((await signIn('parent',{sub:prefix+'self',email:`${prefix}self@gmail.com`})).status,403,'an unverified self-entered email must not silently bind a Google identity');
 });

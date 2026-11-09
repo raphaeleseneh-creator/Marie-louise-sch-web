@@ -1,3 +1,4 @@
+import {FamilyAccessCodes} from "./FamilyAccessCodes";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, BookOpenCheck, CalendarDays, CircleDollarSign, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, X } from "lucide-react";
 import { GoogleSignIn } from "../ui/GoogleSignIn";
@@ -10,12 +11,13 @@ import { AccountsSection, FeesSection, PaymentsSection, RequestsSection } from "
 import { AccountSettings } from "./AccountSettings";
 import { SyncSection } from "./SyncSection";
 
-type View = "overview" | "students" | "classes" | "parents" | "results" | "attendance" | "fees" | "payments" | "announcements" | "admissions" | "tours" | "accounts" | "settings" | "sync";
+type View = "overview" | "students" | "classes" | "parents" | "results" | "attendance" | "fees" | "payments" | "announcements" | "admissions" | "tours" | "accounts" | "settings" | "sync" | "link-codes";
 type Navigation = { id: View; label: string; icon: React.ElementType; roles: Role[] };
 const staff: Role[] = ["developer", "admin", "teacher", "bursar"];
 const teaching: Role[] = ["developer", "admin", "teacher"];
 const finance: Role[] = ["developer", "admin", "bursar"];
 const navigation: Navigation[] = [
+  {id:"link-codes",label:"Family access codes",icon:ShieldCheck,roles:["developer","admin"]},
   { id: "overview", label: "Overview", icon: LayoutDashboard, roles: staff },
   { id: "students", label: "Students", icon: GraduationCap, roles: staff },
   { id: "classes", label: "Classes", icon: BookOpenCheck, roles: staff },
@@ -32,6 +34,7 @@ const navigation: Navigation[] = [
   { id: "sync", label: "Airtable sync", icon: RefreshCw, roles: ["developer", "admin"] },
 ];
 const descriptions: Record<View, string> = {
+  "link-codes":"Issue student IDs and private codes for parent self-service linking.",
   overview: "Choose a section to manage school records.", students: "Student records available to your account.", classes: "Classes available to your account.",
   parents: "School parent and guardian directory.", results: "Review scores and publish reports for families.", attendance: "Record daily attendance and review previous entries.",
   fees: "Create invoices and review outstanding balances.", payments: "Record receipts against student invoices.", announcements: "Draft, target and publish school updates.",
@@ -84,8 +87,8 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       const endpoint = view === "announcements" ? "/api/admin/announcements" : `/api/${view}`;
       const [students, classes, parents, rows, invoices, health] = await Promise.all([
         api<Row[]>("/api/students"), api<Row[]>("/api/classes"),
-        ["developer", "admin"].includes(user.role) && ["parents", "accounts"].includes(view) ? api<Row[]>("/api/parents") : Promise.resolve([]),
-        ["overview", "students", "classes", "parents", "settings", "sync"].includes(view) ? Promise.resolve([]) : api<Row[]>(endpoint),
+        ["developer", "admin"].includes(user.role) && ["parents", "accounts", "link-codes"].includes(view) ? api<Row[]>("/api/parents") : Promise.resolve([]),
+        ["overview", "students", "classes", "parents", "settings", "sync", "link-codes"].includes(view) ? Promise.resolve([]) : api<Row[]>(endpoint),
         view === "payments" ? api<Row[]>("/api/fees") : Promise.resolve([]),
         view === "sync" ? api<{ airtableConfigured: boolean }>("/api/health") : Promise.resolve({ airtableConfigured: false }),
       ]);
@@ -164,6 +167,7 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
       {view === "payments" && finance.includes(user.role) ? <PaymentsSection rows={data.rows} invoices={data.invoices} save={save} /> : null}
       {(view === "admissions" || view === "tours") && ["developer", "admin"].includes(user.role) ? <RequestsSection rows={data.rows} kind={view} save={save} /> : null}
       {view === "accounts" && ["developer", "admin"].includes(user.role) ? <AccountsSection rows={data.rows} parents={data.parents} classes={data.classes} save={save} currentUserId={user.id} canManageDevelopers={user.role === "developer"} /> : null}
+      {view === "link-codes" && ["developer","admin"].includes(user.role) ? <FamilyAccessCodes parents={data.parents} students={data.students}/> : null}
       {view === "settings" ? <AccountSettings user={user} save={save} /> : null}
       {view === "sync" && ["developer", "admin"].includes(user.role) ? <SyncSection configured={data.airtableConfigured} save={save} /> : null}
       </>}

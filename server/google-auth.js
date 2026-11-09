@@ -54,6 +54,9 @@ export function installGoogleAuth(app, { wrap, limit, verify = async credential 
         const [[existing]] = await db.query('SELECT * FROM accounts WHERE email=? FOR UPDATE', [identity.email]);
         account = existing;
         if (account) {
+          // A self-entered email is not proof that a password account belongs to
+          // the Google email owner. Require its existing authenticated session.
+          if(account.self_registered&&Number(req.user?.id)!==Number(account.id))fail(403,'Use the password you chose when creating this account.');
           if (account.google_sub || !identity.authoritative) fail(403, 'Use your existing school password and contact the office to link this Google account.');
           if (!account.active || account.registration_pending) fail(403, 'Contact the school office about your account access.');
           await db.query('UPDATE accounts SET google_sub=? WHERE id=?', [identity.sub, account.id]);

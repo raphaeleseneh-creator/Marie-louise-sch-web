@@ -17,17 +17,16 @@ Google sign-in uses Google Identity Services and verified ID tokens. MySQL/TiDB 
 
 ## How access works
 
-- Existing active school accounts retain their roles and child links. For an unlinked existing account, automatic email matching is restricted to authoritative Gmail or Google Workspace addresses verified by Google. Other email providers must use their existing school password and contact the school for account linking; do not bypass this check.
-- New parents register only from the parent portal. They receive an inactive, pending parent account and a restricted session showing approval status. They cannot read pupil, fee, payment, attendance or announcement records, or use staff actions.
-- Staff cannot self-register or select their own role. The school must create the staff account first.
-- In **Accounts & access**, an administrator reviews the pending registration, privately verifies the guardian, selects the correct active guardian record and confirms every listed child. Guardian records and child links are maintained under **Parents & guardians**. Approval rejects a changed child list and requires another review.
-- Approval revokes the pending session. The parent signs in again and can view only children linked to the approved guardian record. Additional child links must continue to be verified by staff.
-- Deactivated approved accounts cannot register again to bypass deactivation. Every protected API rejects pending accounts independently of the interface.
+- Google verifies account identity. Existing active school accounts retain their roles and child links.
+- Parents can register and sign in immediately. New accounts use **Link children**, entering school-issued student IDs and a private, one-time code. There is no parent approval queue and no automatic child access based on email or a parent ID.
+- **Family access codes** lets the school's Administrator or Developer issue the student IDs and code for a family. Codes expire after seven days and are stored as hashes. Siblings share one parent record.
+- Parents see only their linked children. Staff still cannot self-register or choose a privileged role. Deactivated accounts remain blocked.
+- Existing accounts and guardian links are preserved. Developer preview is separate from parent access.
+
+See [Parent account and linking guide](PARENT-ACCOUNT-LINKING.md) for setup, code issuance, replacement and sibling linking.
 
 ## Verify before launch
 
-Test Google popup success with the configured client, consent cancellation, invalid/expired credentials, replayed challenges, wrong browser, a deactivated account, existing staff, a new pending parent and approval. Use two separate families and confirm that changing a student URL cannot reveal another family's records. Confirm password login remains functional.
-
-The registration does not collect phone numbers or provide self-service multi-child access requests yet. Those remain separate work from Google registration and staff-reviewed guardian linking.
+Test Google's real popup with the configured client, cancellation, expired credentials, wrong browser and deactivated accounts. Test email/password registration without approval, linking several children, wrong student IDs, code replay and expiry, adding a sibling later and isolation between two families. Confirm only the school's Administrator and Developer can issue codes.
 
 Reference: https://developers.google.com/identity/gsi/web/guides/verify-google-id-token
