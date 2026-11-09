@@ -38,6 +38,7 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 function parentUser(user: User) {
+  if (user?.role === "developer" && !user.registration_pending) return user;
   if (!user || user.role !== "parent" || (!user.parent_id && !user.registration_pending)) throw new ApiError("This account has no parent portal access. Please contact the school office.", 403);
   return user;
 }
@@ -92,11 +93,13 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     if (!user || user.registration_pending) return;
     const controller = new AbortController();
     setChildrenLoading(true); setChildrenError(""); setChildren([]); setStudentId(""); setRecords(null); setPrintDocument(null);
-    api<Student[]>(`/api/parents/${encodeURIComponent(String(user.parent_id))}/children`, { signal: controller.signal })
+    const developer = user.role === "developer";
+    const endpoint = developer ? "/api/developer/parent-portal/students" : `/api/parents/${encodeURIComponent(String(user.parent_id))}/children`;
+    api<Student[]>(endpoint, { signal: controller.signal })
       .then((rows) => {
         if (controller.signal.aborted) return;
         if (!Array.isArray(rows)) throw new Error("The school returned an unreadable children list.");
-        setChildren(rows); setStudentId(rows.length ? String(rows[0].id) : "");
+        setChildren(rows); setStudentId(!developer && rows.length ? String(rows[0].id) : "");
       })
       .catch((reason) => {
         if (controller.signal.aborted) return;
@@ -198,6 +201,8 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   );
 
   const selected = children.find((child) => String(child.id) === studentId);
+  const developerPreview = user.role === "developer";
+  const portalNavigation = developerPreview ? navigation.filter(item => item.id !== "security") : navigation;
   const current = records?.id === studentId ? records : null;
   const filteredResults = current?.results.data?.filter(row => matchesAcademicTerm(row.term_id, resultTerm));
   const dashboard = current?.dashboard.data;
@@ -208,9 +213,10 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
       <style>{`@media print { body * { visibility: hidden !important; } #parent-portal-root > header, #parent-portal-root > div { display: none !important; } #parent-portal-print, #parent-portal-print * { visibility: visible !important; } #parent-portal-print { display: block !important; position: absolute; inset: 0; padding: 20px; background: white; color: black; } #parent-portal-print table { font-size: 10px; } #parent-portal-print .overflow-x-auto { overflow: visible; } #parent-portal-print th, #parent-portal-print td { white-space: normal; } #parent-portal-print tr { break-inside: avoid; } }`}</style>
       <header className="border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4"><SchoolLogo onClick={onBackToSchool} /><div className="flex items-center gap-4"><span className="text-sm font-bold text-[#29166F]">{user.full_name}</span><button onClick={signOut} disabled={busy} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#581C87]"><LogOut size={17} />Sign out</button></div></div></header>
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{navigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
+        <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
         <section className="min-w-0 p-4 sm:p-8">
-          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">Child<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
+          {developerPreview ? <aside aria-label="Developer preview" className="mb-6 rounded-lg border-l-4 border-[#E9DB3D] bg-[#29166F] p-5 text-white"><h2 className="font-extrabold">Developer preview · Read-only school records</h2><p className="mt-2 text-sm leading-6 text-white/85">Choose a student to inspect the parent-facing reports, attendance, fees and notices. You are signed in as Developer; this does not grant a parent account access to that student.</p><a href="/admin" className="mt-3 inline-flex min-h-11 items-center font-bold text-[#E9DB3D] underline">Back to staff workspace</a></aside> : null}
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">{developerPreview ? "Preview student" : "Child"}<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{developerPreview ? <option value="">Choose a student to preview</option> : null}{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
           {view === "security" ? <form onSubmit={changePassword} className="max-w-md space-y-5" aria-busy={busy}>
             <p className="text-sm leading-6 text-[#625B69]">Choose a password of at least 12 characters. You will need to sign in again after saving.</p>
             <label className="block text-sm font-bold">Current password<input name="current_password" type="password" autoComplete="current-password" required disabled={busy} className={inputClass} /></label>
@@ -218,7 +224,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
             <label className="block text-sm font-bold">Confirm new password<input name="confirm_password" type="password" autoComplete="new-password" minLength={12} required disabled={busy} className={inputClass} /></label>
             {passwordError ? <p role="alert" className="text-sm text-red-700">{passwordError}</p> : null}
             <button disabled={busy} className={buttonClass}>{busy ? "Saving password…" : "Change password"}</button>
-          </form> : childrenLoading ? <p role="status">Loading your children…</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message="No children are linked to your account. Please contact the school office." /> : <>
+          </form> : childrenLoading ? <p role="status">{developerPreview ? "Loading students for preview…" : "Loading your children…"}</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message={developerPreview ? "No active students are available to preview." : "No children are linked to your account. Please contact the school office."} /> : !studentId ? <Empty message="Choose a student above to preview their parent portal." /> : <>
             {selected ? <div className="mb-6 border-l-4 border-[#E9DB3D] pl-4"><h2 className="text-lg font-extrabold text-[#29166F]">{nameOf(selected)}</h2><p className="mt-1 text-sm text-[#625B69]">{selected.class_name || "Class not assigned"} · {selected.student_code}</p></div> : null}
             {!current ? <p role="status" className="py-8">Loading school records…</p> : <>
               <div className="mb-5 flex justify-end"><button onClick={retry} className="text-sm font-bold text-[#581C87]">Refresh records</button></div>

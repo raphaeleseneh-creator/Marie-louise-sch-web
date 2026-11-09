@@ -98,6 +98,19 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
     assert.match(cookies[name], /^ml_session=[a-f0-9]{64}$/);
   }
   const result = (student, subject, status = 'draft') => ({student_id:student, term_id:'reccR4ZBVMQoLeZbn', subject, ca1_score:10, ca2_score:20, exam_score:60, publication_status:status});
+  await t.test('parent portal preview list is Developer-only and exposes only selector fields',async()=>{
+    const path='/developer/parent-portal/students';
+    const {data}=await request('developer','GET',path);
+    assert.ok(students.every(id=>data.some(row=>row.id===id)));
+    assert.deepEqual(Object.keys(data[0]).sort(),['id','student_code','first_name','last_name','class_name'].sort());
+    for(const role of ['admin','teacher','bursar','parent0','parent1'])await request(role,'GET',path,undefined,403);
+    await request(null,'GET',path,undefined,401);
+    await request('developer','GET',`/students/${students[0]}/dashboard`);
+    await request('developer','GET',`/students/${students[0]}/results`);
+    await request('developer','GET',`/students/${students[0]}/attendance`);
+    await request('developer','GET',`/students/${students[0]}/fees`);
+    await request('parent0','GET',`/students/${students[1]}/dashboard`,undefined,403);
+  });
   await t.test('developer retains management access and ordinary admins cannot alter developer accounts',async()=>{
     assert.equal((await request('developer','GET','/auth/me')).data.user.role,'developer');
     const listed=(await request('developer','GET','/accounts')).data;

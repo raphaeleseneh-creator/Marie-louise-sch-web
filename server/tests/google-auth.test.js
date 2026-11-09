@@ -64,7 +64,7 @@ test('Google API registration, browser binding, replay protection and guardian a
   claims={...claims,nonce:expired.body.nonce};
   assert.equal((await call('/api/auth/google',{credential:'test-only-token',nonce:claims.nonce},expired.cookie)).status,401,'expired challenge denied');
   const self=await call('/api/auth/me',null,registration.cookie);assert.equal(Number(self.body.user.registration_pending),1);
-  for(const path of ['/api/students','/api/payments','/api/accounts','/api/classes','/api/parents/1/children','/api/students/1/results','/api/students/1/attendance','/api/students/1/fees','/api/students/1/dashboard'])assert.equal((await call(path,null,registration.cookie)).status,403,path);
+  for(const path of ['/api/developer/parent-portal/students','/api/students','/api/payments','/api/accounts','/api/classes','/api/parents/1/children','/api/students/1/results','/api/students/1/attendance','/api/students/1/fees','/api/students/1/dashboard'])assert.equal((await call(path,null,registration.cookie)).status,403,path);
   const [admin]=await pool.query("INSERT INTO accounts(full_name,email,password_hash,role) VALUES (?,?,?,'admin')",[prefix,`${prefix}admin@gmail.com`,await hashPassword(password)]);adminId=admin.insertId;
   const adminLogin=await call('/api/auth/login',{email:`${prefix}admin@gmail.com`,password});assert.equal(adminLogin.status,200);
   const patch=await fetch(base+`/api/accounts/${pendingId}`,{method:'PATCH',headers:{'Content-Type':'application/json',Cookie:adminLogin.cookie},body:JSON.stringify({active:true})});assert.equal(patch.status,409,'generic activation cannot bypass verification');
