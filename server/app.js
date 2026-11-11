@@ -3,8 +3,12 @@ import {randomBytes} from 'node:crypto';
 import {pool} from './db.js';
 import {identify,roles,requireAdmin,canAccessStudent,studentScope,fail,positiveId,hashPassword,verifyPassword,digest} from './auth.js';
 import {text,number,choice,date,email,resultData,parseCsv} from './validation.js';
-import {fetchAllAirtableRecords,airtableField} from './airtable.js';
 import { resolveTerm, termLabel } from './academic-calendar.js';
+import {normalizeUniqueId,resolveSignInMatch,createChallenge,redeemChallenge,signInEmail,GENERIC_SIGN_IN_ERROR,CODE_TTL_MINUTES} from './parent-access.js';
+import {mailMode,sendMail} from './mailer.js';
+import {runAirtableSync} from './sync-airtable.js';
+import {portalDemoMode} from './demo-mode.js';
+import {SIGN_IN_EXAMPLES} from './demo-data.js';
 export const app=express();
 app.disable('x-powered-by');
 app.set('trust proxy',false);
@@ -22,10 +26,15 @@ app.use((req,res,next)=>{
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const all=roles('admin','teacher','bursar','parent'), staff=roles('admin','teacher','bursar'), teaching=roles('admin','teacher'),finance=roles('admin','bursar');
 const buckets=new Map();
-function limit(prefix,max){return(req,res,next)=>{const key=prefix+req.ip;const now=Date.now();let bucket=buckets.get(key);if(!bucket||bucket.until<now){bucket={count:0,until:now+15*60*1000};buckets.set(key,bucket);}if(++bucket.count>max)return res.status(429).json({error:'Too many requests. Please try again in 15 minutes.'});next();};}
+function overLimit(key,max){const now=Date.now();let bucket=buckets.get(key);if(!bucket||bucket.until<now){bucket={count:0,until:now+15*60*1000};buckets.set(key,bucket);}return ++bucket.count>max;}
+const tooMany=res=>res.status(429).json({error:'Too many requests. Please try again in 15 minutes.'});
+function limit(prefix,max){return(req,res,next)=>overLimit(prefix+req.ip,max)?tooMany(res):next();}
+export function resetRateLimitsForTesting(){buckets.clear();}
 const cleanup=setInterval(()=>{for(const [key,b]of buckets)if(b.until<Date.now())buckets.delete(key);},60000);cleanup.unref();
 app.use(identify);
-app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE)});}));
+app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE),portalDemo:portalDemoMode()});}));
+// Demo only (npm run demo): fictional sign-in examples for the portal's demo panel.
+app.get('/api/demo/sign-in-examples',(_req,res)=>portalDemoMode()?res.json(SIGN_IN_EXAMPLES):res.status(404).json({error:'Endpoint not found.'}));
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const address=email(req.body.email),password=text(req.body.password,'Password',200);
@@ -33,12 +42,44 @@ app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const valid=account?await verifyPassword(password,account.password_hash):await verifyPassword(password,await hashPassword('unused-password-padding'));
   if(!account||!valid)fail(401,'Email or password is incorrect.');
   if(account.role==='parent'){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}
+  await startSession(req,res,account.id);
+  const {id,full_name,role,parent_id}=account;res.json({user:{id,full_name,role,parent_id}});
+}));
+async function startSession(req,res,accountId){
   const previous=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);
   if(previous)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(previous)]);
   await pool.query('DELETE FROM sessions WHERE expires_at<NOW()');
-  const token=randomBytes(32).toString('hex');await pool.query('INSERT INTO sessions(token_hash,account_id,expires_at) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 8 HOUR))',[digest(token),account.id]);
+  const token=randomBytes(32).toString('hex');await pool.query('INSERT INTO sessions(token_hash,account_id,expires_at) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 8 HOUR))',[digest(token),accountId]);
   res.cookie('ml_session',token,{...cookieOptions,maxAge:8*60*60*1000});
-  const {id,full_name,role,parent_id}=account;res.json({user:{id,full_name,role,parent_id}});
+}
+// Parent sign-in step 1: Email + Unique ID (pupil's Student ID code). The response is identical
+// whether or not the pair matches, so it reveals nothing about families. A code is emailed only
+// to the address on the matching parent record.
+app.post('/api/auth/parent/start',limit('parent-start',10),wrap(async(req,res)=>{
+  const address=email(req.body.email),uniqueId=normalizeUniqueId(req.body.unique_id);
+  if(!uniqueId)fail(400,'Enter the unique ID from your child’s enrolment record.');
+  if(!mailMode())throw Object.assign(new Error('Parent sign-in is not available yet. Please contact the school office.'),{status:503,expose:true});
+  if(overLimit('parent-email:'+digest(address),5))return tooMany(res);
+  const match=await resolveSignInMatch(pool,address,uniqueId);
+  const {token,code}=await createChallenge(pool,match);
+  // Sent without awaiting so response timing does not depend on whether the details matched.
+  if(match.status==='match')sendMail({to:address,...signInEmail(code)}).catch(error=>console.error('Parent sign-in email failed:',error.code||error.name));
+  const body={challenge:token,expires_in_minutes:CODE_TTL_MINUTES};
+  // Demo database only: show the code on screen in place of the email (null = no email would be sent).
+  if(portalDemoMode())body.demo={code:match.status==='match'?code:null};
+  res.json(body);
+}));
+// Parent sign-in step 2: the emailed code. Creates the parent's portal account on first use.
+app.post('/api/auth/parent/verify',limit('parent-verify',30),wrap(async(req,res)=>{
+  const token=typeof req.body.challenge==='string'?req.body.challenge:'',code=typeof req.body.code==='string'?req.body.code.replace(/\s+/g,''):'';
+  const db=await pool.getConnection();let accountId=null;
+  try{await db.beginTransaction();accountId=await redeemChallenge(db,token,code);await db.commit();}
+  catch(error){await db.rollback();if(error.code==='ER_DUP_ENTRY')fail(401,GENERIC_SIGN_IN_ERROR);throw error;}
+  finally{db.release();}
+  if(!accountId)fail(401,GENERIC_SIGN_IN_ERROR);
+  await startSession(req,res,accountId);
+  const [[user]]=await pool.query('SELECT id,full_name,role,parent_id FROM accounts WHERE id=?',[accountId]);
+  res.json({user});
 }));
 app.get('/api/auth/me',all,(req,res)=>res.json({user:req.user}));
 app.post('/api/auth/logout',wrap(async(req,res)=>{const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);if(token)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(token)]);res.clearCookie('ml_session',cookieOptions);res.json({ok:true});}));
@@ -147,9 +188,13 @@ for(const [table,statuses]of [['admissions',['new','contacted','accepted','decli
   app.get('/api/'+table,requireAdmin,wrap(async(_req,res)=>{const [rows]=await pool.query(`SELECT * FROM ${table} ORDER BY id DESC`);res.json(rows);}));
   app.patch('/api/'+table+'/:id',requireAdmin,wrap(async(req,res)=>{const [r]=await pool.query(`UPDATE ${table} SET status=? WHERE id=?`,[choice(req.body.status,statuses,'status'),positiveId(req.params.id)||0]);if(!r.affectedRows)fail(404,'Request not found.');res.json({ok:true});}));
 }
+// Runs the same validated Airtable import as `npm run sync:airtable` (students, parents,
+// guardian-child links, results, attendance, fees). The previous students-only sync stored
+// "Full Name - ML-..." as the student code, which no longer matched the importer or parent sign-in.
 app.post('/api/sync/students',requireAdmin,wrap(async(_req,res)=>{
-  const records=await fetchAllAirtableRecords(),db=await pool.getConnection();let synced=0;
-  try{await db.beginTransaction();for(const record of records){const f=record.fields||{},code=text(String(airtableField(f,'Student_ID','Student ID')||record.id),'Student ID',50),first=text(airtableField(f,'First_Name','First Name'),'First name',100),last=text(airtableField(f,'Last_Name','Last Name'),'Last name',100);const classValue=airtableField(f,'Class Name','Class_Name');let classId=null;if(classValue){const name=Array.isArray(classValue)?classValue[0]:classValue;if(typeof name!=='string'||name.startsWith('rec'))fail(400,'Provide a Class Name lookup in Airtable to resolve linked classes.');const [c]=await db.query('INSERT INTO classes(name) VALUES (?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)',[text(name,'Class',100)]);classId=c.insertId;}await db.query('INSERT INTO students(student_code,first_name,last_name,date_of_birth,class_id,enrollment_status) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name),last_name=VALUES(last_name),date_of_birth=VALUES(date_of_birth),class_id=COALESCE(VALUES(class_id),class_id),enrollment_status=VALUES(enrollment_status)',[code,first,last,date(airtableField(f,'Date of Birth','Date_Of_Birth'),'Date of birth',true),classId,choice(String(airtableField(f,'Enrollment_Status','Enrollment Status')||'active').toLowerCase(),['pending','active','inactive'],'enrollment status')]);synced++;}await db.commit();res.json({synced});}catch(error){await db.rollback();throw error;}finally{db.release();}
+  const report=await runAirtableSync({apply:true});
+  const t=report.tables;
+  res.json({synced:t.students.toInsert+t.students.toUpdate+t.students.toSkip,students:t.students,parents:t.parents,parent_students:{toInsert:t.parent_students.toInsert,toUpdate:t.parent_students.toUpdate,toRemove:t.parent_students.toRemove,flagged:t.parent_students.flagged}});
 }));
 app.use((_req,res)=>res.status(404).json({error:'Endpoint not found.'}));
-app.use((error,_req,res,_next)=>{let status=error.status||error.statusCode||500,message=error.message;if(error.code==='ER_DUP_ENTRY'){status=409;message='This record already exists. Please edit the existing record.';}if(error.code==='ER_NO_REFERENCED_ROW_2'){status=400;message='The linked record does not exist. Choose a valid student, parent or class.';}if(status>=500){console.error('School API error:',error.code||error.name);message='The request could not be completed. Please try again.';}res.status(status).json({error:message});});
+app.use((error,_req,res,_next)=>{let status=error.status||error.statusCode||500,message=error.message;if(error.code==='ER_DUP_ENTRY'){status=409;message='This record already exists. Please edit the existing record.';}if(error.code==='ER_NO_REFERENCED_ROW_2'){status=400;message='The linked record does not exist. Choose a valid student, parent or class.';}if(status>=500&&!error.expose){console.error('School API error:',error.code||error.name);message='The request could not be completed. Please try again.';}res.status(status).json({error:message});});

@@ -1,11 +1,15 @@
 export const unavailableMessage = "School sign-in is temporarily unavailable. Please try again.";
 
-export async function checkSchoolService(signal: AbortSignal) {
+export type SchoolHealth = { ok: true; portalDemo?: boolean };
+
+export async function checkSchoolService(signal: AbortSignal): Promise<SchoolHealth> {
   const response = await fetch("/api/health", {
     cache: "no-store",
     signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
   });
-  if (!response.ok || (await response.json()).ok !== true) throw new Error(unavailableMessage);
+  const body = response.ok ? await response.json().catch(() => null) : null;
+  if (!body || body.ok !== true) throw new Error(unavailableMessage);
+  return body as SchoolHealth;
 }
 
 export function PortalUnavailable({ retry }: { retry: () => void }) {

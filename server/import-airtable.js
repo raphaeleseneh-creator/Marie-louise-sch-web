@@ -52,6 +52,27 @@ const CLASS_CODE_TO_NAME = {
 const VALID_ATTENDANCE_STATUSES = new Set(['present', 'absent', 'late', 'excused']);
 const VALID_GUARDIAN_RELATIONSHIPS = new Set(['parent', 'mother', 'father', 'guardian']);
 
+// Airtable linked-record pairs between Parents and Students (Parents field -> Students inverse field),
+// taken from schema/mls-airtable-schema.json. ParentEmail_Student <-> "Parents 2" is an email lookup
+// and never grants access.
+const GUARDIAN_LINK_INVERSES = {
+  Students: 'Parents',
+  'Students 2': 'Parent_Guardian',
+  'Students 3': 'ParentID',
+};
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** A ParentStudentLinks junction row stops granting access when revoked or past its End_Date. */
+function isRevokedJunction(fields) {
+  const status = firstString(fields.Link_Status || fields.Access_Status || fields.Status).toLowerCase();
+  if (['revoked', 'inactive', 'ended', 'removed'].includes(status)) return true;
+  const end = normalizeDate(fields.End_Date);
+  return Boolean(end && end < todayIso());
+}
+
 function stripBom(text) {
   return String(text || '').replace(/^\uFEFF/, '');
 }
@@ -787,12 +808,14 @@ export async function runAirtableImport(options = {}) {
     seenStudentCodes.add(studentCode.toUpperCase());
     const existingRow = existingByAirtable || existingByCode || null;
 
-    // Collect explicit student-side guardian record links (never names or emails)
-    const explicitParentLinksOnStudent = new Set([
-      ...asArray(f.Parents).filter(isValidRecordId),
-      ...asArray(f.ParentID).filter(isValidRecordId),
-      ...asArray(f['Parents 2']).filter(isValidRecordId),
-    ]);
+    // Student-side guardian links, keyed by the Parents-table field that is their Airtable inverse.
+    // Students."Parents 2" is the inverse of the email-lookup field and is deliberately excluded.
+    const explicitParentLinksOnStudent = Object.fromEntries(
+      Object.entries(GUARDIAN_LINK_INVERSES).map(([parentField, studentField]) => [
+        parentField,
+        new Set(asArray(f[studentField]).filter(isValidRecordId)),
+      ]),
+    );
 
     const planned = {
       airtableRecordId: recordId,
@@ -868,8 +891,12 @@ export async function runAirtableImport(options = {}) {
     const rawEmail = firstString(f.ParentEmail || f.Email);
     const email = normalizeEmail(rawEmail);
     const phone = firstString(f.Phone_Number || f.Phone) || null;
+    // Portal access needs no staff approval: blank or "Pending" Portal Access still counts as active.
+    // Only an explicit suspension/disable (or the legacy Parent_Status text "inactive") turns it off.
     const rawStatus = firstString(f.Parent_Status).toLowerCase();
-    const status = rawStatus === 'inactive' ? 'inactive' : 'active';
+    const portalAccess = firstString(f['Portal Access']).toLowerCase();
+    const status =
+      rawStatus === 'inactive' || ['suspended', 'disabled'].includes(portalAccess) ? 'inactive' : 'active';
 
     if (!fullName) {
       issues.push('missing_parent_name');
@@ -901,7 +928,6 @@ export async function runAirtableImport(options = {}) {
       phone,
       status,
       relationship: firstString(f.Relationship),
-      explicitStudentLinks: asArray(f.Students).filter(isValidRecordId),
       existingId: existingRow?.id || null,
     };
 
@@ -934,17 +960,17 @@ export async function runAirtableImport(options = {}) {
   if (Array.isArray(recordsByTable.ParentStudentLinks) && explicitJunctionRecords.length > 0) {
     for (const rec of explicitJunctionRecords) {
       const f = rec?.fields || {};
+      // A junction row is the school's explicit record of the relationship. It grants access
+      // unless it is revoked or past End_Date; no separate staff approval flag is required.
+      const revoked = isRevokedJunction(f);
       candidateLinks.push({
         recordId: rec?.id,
         source: 'ParentStudentLinks',
         parentIds: asArray(f.Parent || f.Parent_Link || f.Parents).filter(isValidRecordId),
         studentIds: asArray(f.Student || f.Student_Link || f.Students).filter(isValidRecordId),
         relationship: firstString(f.Relationship),
-        verified:
-          f.Verified === true ||
-          ['verified', 'active'].includes(
-            firstString(f.Access_Status || f.Link_Status || f.Status).toLowerCase(),
-          ),
+        revoked,
+        verified: !revoked,
         isPrimary: f.Is_Primary_Contact !== false && f.Is_Primary_Guardian !== false,
       });
     }
@@ -953,11 +979,15 @@ export async function runAirtableImport(options = {}) {
   for (const rec of parentRecords) {
     const parentId = rec?.id;
     const f = rec?.fields || {};
-    const directStudentIds = new Set([
-      ...asArray(f.Students).filter(isValidRecordId),
-      ...asArray(f['Students 2']).filter(isValidRecordId),
-      ...asArray(f['Students 3']).filter(isValidRecordId),
-    ]);
+    // studentId -> Parents-table link fields that contain it
+    const directStudentFields = new Map();
+    for (const parentField of Object.keys(GUARDIAN_LINK_INVERSES)) {
+      for (const studentId of asArray(f[parentField]).filter(isValidRecordId)) {
+        if (!directStudentFields.has(studentId)) directStudentFields.set(studentId, new Set());
+        directStudentFields.get(studentId).add(parentField);
+      }
+    }
+    const directStudentIds = new Set(directStudentFields.keys());
     const emailDerivedStudentIds = new Set(asArray(f.ParentEmail_Student).filter(isValidRecordId));
 
     for (const studentId of directStudentIds) {
@@ -974,6 +1004,7 @@ export async function runAirtableImport(options = {}) {
       candidateLinks.push({
         recordId: `${parentId}:${studentId}`,
         source: 'Parents.Students',
+        parentFields: directStudentFields.get(studentId),
         parentIds: [parentId],
         studentIds: [studentId],
         relationship: firstString(f.Relationship),
@@ -1034,21 +1065,26 @@ export async function runAirtableImport(options = {}) {
       issues.push('missing_linked_student_record');
     }
 
+    // Verified when a Parents link field and its own Students inverse field agree.
     const hasBidirectionalVerification =
-      Boolean(validParent && validStudent) &&
-      validParent.explicitStudentLinks.includes(studentAirtableId) &&
-      validStudent.explicitParentLinksOnStudent.has(parentAirtableId);
+      Boolean(validParent && validStudent && candidate.parentFields) &&
+      [...candidate.parentFields].some((parentField) =>
+        validStudent.explicitParentLinksOnStudent[parentField]?.has(parentAirtableId),
+      );
 
     const isExplicitlyVerified =
       !candidate.emailDerivedOnly &&
       ((candidate.source === 'ParentStudentLinks' && candidate.verified) ||
         hasBidirectionalVerification);
 
-    if (!isExplicitlyVerified && !issues.includes('email_or_name_derived_link_rejected')) {
+    if (candidate.revoked) {
+      issues.push('revoked_guardian_student_link');
+    } else if (!isExplicitlyVerified && !issues.includes('email_or_name_derived_link_rejected')) {
       issues.push('unverified_guardian_student_link');
     }
 
-    const relRaw = firstString(candidate.relationship || validParent?.relationship);
+    // The relationship label is descriptive only; a blank label defaults to "Parent".
+    const relRaw = firstString(candidate.relationship || validParent?.relationship) || 'Parent';
     const relNorm = relRaw.toLowerCase();
     if (!relRaw || !VALID_GUARDIAN_RELATIONSHIPS.has(relNorm)) {
       issues.push('missing_or_invalid_guardian_relationship');
@@ -1098,6 +1134,41 @@ export async function runAirtableImport(options = {}) {
         parentStudentOperations.push({ action: 'update', ...planned });
       }
     }
+  }
+
+  // 4b. Plan REMOVAL of imported guardian-student links that Airtable no longer records.
+  // A link stays while the relationship still exists in Airtable (even if an unrelated field on the
+  // record needs fixing); it is removed when the link is deleted, revoked or past End_Date.
+  // Only links whose parent or pupil appears in this export are considered, so a partial export
+  // (or a test fixture run against a live database) never touches unrelated families.
+  const parentStudentRemovals = [];
+  const exportHasParents = Array.isArray(recordsByTable.Parents) && recordsByTable.Parents.length > 0;
+  const exportHasStudents = Array.isArray(recordsByTable.Students) && recordsByTable.Students.length > 0;
+  const exportHasJunction = Array.isArray(recordsByTable.ParentStudentLinks);
+  parentStudentsSummary.toRemove = 0;
+  parentStudentsSummary.removalSkipped = !(exportHasParents && exportHasStudents);
+  if (exportHasParents && exportHasStudents) {
+    const exportedParentIds = new Set(parentRecords.map((r) => r?.id).filter(isValidRecordId));
+    const exportedStudentIds = new Set(studentRecords.map((r) => r?.id).filter(isValidRecordId));
+    const presentPairs = new Set(
+      candidateLinks
+        .filter((c) => !c.emailDerivedOnly && !c.revoked && c.parentIds.length === 1 && c.studentIds.length === 1)
+        .map((c) => `${c.parentIds[0]}:${c.studentIds[0]}`),
+    );
+    const parentAirtableByDbId = new Map(existing.parents.map((p) => [Number(p.id), p.airtable_record_id]));
+    const studentAirtableByDbId = new Map(existing.students.map((s) => [Number(s.id), s.airtable_record_id]));
+    for (const row of existing.parentStudents) {
+      if (!row.airtable_record_id) continue; // created by staff in the portal: preserved
+      const isJunctionRow = !String(row.airtable_record_id).includes(':');
+      if (isJunctionRow && !exportHasJunction) continue;
+      const parentAt = parentAirtableByDbId.get(Number(row.parent_id));
+      const studentAt = studentAirtableByDbId.get(Number(row.student_id));
+      if (!parentAt || !studentAt) continue;
+      if (!exportedParentIds.has(parentAt) && !exportedStudentIds.has(studentAt)) continue;
+      if (presentPairs.has(`${parentAt}:${studentAt}`)) continue;
+      parentStudentRemovals.push({ parentId: row.parent_id, studentId: row.student_id });
+    }
+    parentStudentsSummary.toRemove = parentStudentRemovals.length;
   }
 
   // 5. Validate & plan ACADEMIC_RESULTS
@@ -1190,12 +1261,26 @@ export async function runAirtableImport(options = {}) {
     }
 
     const ca1Val =
-      f['CA1 Score'] ?? f['Continuous Assessment 1 (Score)'] ?? f['CA1 (20%)'] ?? f.CA1 ?? 0;
+      f.CA1_Score ??
+      f['Continuous Assessment 1 Score'] ??
+      f['CA1 Score'] ??
+      f['Continuous Assessment 1 (Score)'] ??
+      f['CA1 (20%)'] ??
+      f.CA1 ??
+      0;
     const ca2Val =
-      f['CA2 Score'] ?? f['Continuous Assessment 2 (Score)'] ?? f['CA2 (20%)'] ?? f.CA2 ?? 0;
-    const examVal = f['Exam Score'] ?? f['Exam (60%)'] ?? f.Exam ?? 0;
+      f.CA2_Score ??
+      f['Continuous Assessment 2 Score'] ??
+      f['CA2 Score'] ??
+      f['Continuous Assessment 2 (Score)'] ??
+      f['CA2 (20%)'] ??
+      f.CA2 ??
+      0;
+    const examVal = f.Exam_Score ?? f['Exam Score'] ?? f['Exam (60%)'] ?? f.Exam ?? 0;
     const computed = computeScoreAndGrade({ ca1: ca1Val, ca2: ca2Val, exam: examVal });
-    const sourceTotal = Number(f['Total Score'] ?? f['Total Score 1'] ?? computed.total ?? NaN);
+    const sourceTotal = Number(
+      f.Total_Score ?? f['Total Score1'] ?? f['Total Score 1'] ?? f['Total Score'] ?? computed.total ?? NaN,
+    );
     if (
       computed.error ||
       !Number.isFinite(sourceTotal) ||
@@ -1789,6 +1874,14 @@ export async function runAirtableImport(options = {}) {
       }
     }
 
+    // Removed or revoked Airtable links stop granting portal access on this run.
+    for (const removal of parentStudentRemovals) {
+      await executor.query(
+        'DELETE FROM parent_students WHERE parent_id = ? AND student_id = ? AND airtable_record_id IS NOT NULL',
+        [removal.parentId, removal.studentId],
+      );
+    }
+
     for (const op of resultOperations) {
       const studentId = studentIdByAirtableId.get(op.studentAirtableId);
       if (!studentId) continue;
@@ -1965,6 +2058,8 @@ export async function runAirtableImport(options = {}) {
         );
       }
     }
+
+    await syncMirrorAndTeachersTables(executor, schemaDoc, recordsByTable);
   }
 
   return {
@@ -1988,6 +2083,130 @@ export async function runAirtableImport(options = {}) {
       payments: paymentsSummary,
     },
   };
+}
+
+function coerceMirrorColumnValue(rawVal, mysqlType) {
+  if (rawVal === undefined || rawVal === null) return null;
+  const upperType = String(mysqlType || 'TEXT').toUpperCase();
+  if (upperType === 'JSON') {
+    return JSON.stringify(rawVal);
+  }
+  if (upperType === 'BIGINT' || upperType.startsWith('DECIMAL') || upperType === 'INT') {
+    const num = Number(rawVal);
+    return Number.isFinite(num) ? num : null;
+  }
+  if (upperType.startsWith('TINYINT') || upperType === 'BOOLEAN' || typeof rawVal === 'boolean') {
+    return rawVal ? 1 : 0;
+  }
+  if (upperType === 'DATE') {
+    return normalizeDate(rawVal);
+  }
+  if (upperType.startsWith('DATETIME')) {
+    const d = new Date(String(rawVal));
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 23).replace('T', ' ');
+  }
+  if (typeof rawVal === 'object') {
+    return JSON.stringify(rawVal);
+  }
+  return String(rawVal);
+}
+
+async function syncMirrorAndTeachersTables(executor, schemaDoc, recordsByTable) {
+  let existingTableNames = new Set();
+  try {
+    const [rows] = await executor.query(
+      'SELECT table_name AS tableName FROM information_schema.tables WHERE table_schema = DATABASE()',
+    );
+    if (Array.isArray(rows)) {
+      existingTableNames = new Set(
+        rows.map((r) => String(r.tableName || r.TABLE_NAME || '').toLowerCase()).filter(Boolean),
+      );
+    }
+  } catch {
+    return;
+  }
+
+  if (existingTableNames.size === 0) return;
+
+  // 1. Ensure clean operational `teachers` table exists and sync Teachers.json into it
+  const teacherRecords = recordsByTable.Teachers || [];
+  if (teacherRecords.length > 0) {
+    await executor.query(`
+      CREATE TABLE IF NOT EXISTS teachers (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        airtable_record_id VARCHAR(64) NOT NULL,
+        employee_id VARCHAR(32) DEFAULT NULL,
+        full_name VARCHAR(150) NOT NULL,
+        email VARCHAR(255) DEFAULT NULL,
+        assigned_class VARCHAR(100) DEFAULT NULL,
+        subject VARCHAR(100) DEFAULT NULL,
+        lesson_notes_count INT UNSIGNED NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY airtable_record_id (airtable_record_id),
+        UNIQUE KEY employee_id (employee_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    for (const rec of teacherRecords) {
+      if (!isValidRecordId(rec?.id)) continue;
+      const f = rec.fields || {};
+      const employeeId = firstString(f['Employee ID']) || null;
+      const rawCopy = firstString(f['Full Name copy']);
+      const rawFull = firstString(f['Full Name']).replace(/\s*-\s*TCH-\d+$/i, '').trim();
+      const fullName = rawCopy || rawFull || employeeId || rec.id;
+      const email = normalizeEmail(f['Teacher Email'] || f['Airtable User']?.email) || null;
+      const assignedClass = firstString(f.Class1) || null;
+      const subject = firstString(f.Subject) || null;
+      const lessonNotesCount = asArray(f['Lesson Notes Log']).length;
+
+      await executor.query(
+        `INSERT INTO teachers
+           (airtable_record_id, employee_id, full_name, email, assigned_class, subject, lesson_notes_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           employee_id = VALUES(employee_id),
+           full_name = VALUES(full_name),
+           email = VALUES(email),
+           assigned_class = VALUES(assigned_class),
+           subject = VALUES(subject),
+           lesson_notes_count = VALUES(lesson_notes_count)`,
+        [rec.id, employeeId, fullName, email, assignedClass, subject, lessonNotesCount],
+      );
+    }
+  }
+
+  // 2. Sync all 27 mls_airtable_* mirror tables that exist in the database
+  for (const tableDef of schemaDoc.tables || []) {
+    const sqlTable = String(tableDef.mysqlTable || '').toLowerCase();
+    if (!sqlTable || !existingTableNames.has(sqlTable)) continue;
+
+    const records = recordsByTable[tableDef.name] || [];
+    if (records.length === 0) continue;
+
+    const fields = tableDef.fields || [];
+    const colNames = ['`airtable_record_id`', '`airtable_created_time`'];
+    for (const f of fields) {
+      colNames.push(`\`${f.mysqlColumn}\``);
+    }
+    const placeholders = colNames.map(() => '?').join(', ');
+    const updateClause = colNames
+      .slice(1)
+      .map((c) => `${c} = VALUES(${c})`)
+      .join(', ');
+
+    const sql = `INSERT INTO \`${tableDef.mysqlTable}\` (${colNames.join(', ')}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateClause}`;
+
+    for (const rec of records) {
+      if (!isValidRecordId(rec?.id)) continue;
+      const createdTime = coerceMirrorColumnValue(rec.createdTime, 'DATETIME');
+      const values = [rec.id, createdTime];
+      for (const f of fields) {
+        values.push(coerceMirrorColumnValue(rec.fields?.[f.name], f.mysqlType));
+      }
+      await executor.query(sql, values);
+    }
+  }
 }
 
 export function formatImportReport(report) {
@@ -2021,7 +2240,7 @@ export function formatImportReport(report) {
   lines.push('--- Operational Table Import Summary (Zero PII) ---');
   for (const [tableName, summary] of Object.entries(report.tables)) {
     lines.push(
-      `  [${tableName}] source=${summary.sourceCount} | insert=${summary.toInsert} | update=${summary.toUpdate} | skip=${summary.toSkip} | flagged=${summary.flagged}`,
+      `  [${tableName}] source=${summary.sourceCount} | insert=${summary.toInsert} | update=${summary.toUpdate} | skip=${summary.toSkip} | flagged=${summary.flagged}${summary.toRemove !== undefined ? ` | remove=${summary.toRemove}${summary.removalSkipped ? ' (skipped: Parents/Students export missing)' : ''}` : ''}`,
     );
     const issueEntries = Object.entries(summary.issues);
     if (issueEntries.length > 0) {

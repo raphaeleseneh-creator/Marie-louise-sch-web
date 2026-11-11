@@ -8,9 +8,12 @@
     "server": "node server/index.js",
     "db:migrate": "node server/migrate.js",
     "import:airtable": "node server/import-airtable.js",
+    "sync:airtable": "node server/sync-airtable.js",
+    "demo": "node server/demo.js",
     "create-admin": "node server/create-admin.js",
-    "test:server": "node --test server/tests/*.test.js",
+    "test:server": "node --test --test-concurrency=1 server/tests/*.test.js",
     "build": "vite build",
+    "build:demo": "vite build --mode demo",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
@@ -24,6 +27,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "mysql2": "^3.24.6",
+    "nodemailer": "^6.10.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0"

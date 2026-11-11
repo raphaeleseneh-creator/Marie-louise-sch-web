@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bell, CreditCard, Eye, EyeOff, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Bell, CreditCard, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
 import { schoolConfig } from "../../data/school";
-import { checkSchoolService, PortalUnavailable } from "../ui/PortalAvailability";
+import { checkSchoolService, PortalUnavailable, type SchoolHealth } from "../ui/PortalAvailability";
 import { AcademicTermFilter, matchesAcademicTerm } from "../ui/AcademicTerms";
 
 type User = { id: number; full_name: string; role: string; parent_id: number | null };
@@ -11,12 +11,15 @@ type Student = Row & { id: number; first_name: string; last_name: string; studen
 type Dashboard = { student: Student; attendance: { total_days: number; days_present: number; days_absent: number; other_days: number }; fees: { total_due: number | string; total_paid: number | string }; announcements: Row[] };
 type Resource<T> = { data: T | null; error: string };
 type Records = { id: string; dashboard: Resource<Dashboard>; results: Resource<Row[]>; attendance: Resource<Row[]>; fees: Resource<Row[]>; payments: Resource<Row[]> };
-type View = "overview" | "reports" | "fees" | "notices" | "security";
+type View = "overview" | "reports" | "fees" | "notices";
+type SignInDetails = { email: string; unique_id: string };
+type DemoExample = SignInDetails & { label: string; expect: string };
+// Demo mode (npm run demo): the code is shown on screen; null means no email would have been sent.
+type DemoOutcome = { code: string | null; email: string };
 type PrintDocument = { kind: "report"; student: Student; results: Row[]; attendance: Row[] } | { kind: "receipt"; student: Student; receipt: Row; invoice: string };
 const navigation = [
   { id: "overview", label: "Overview", icon: Home }, { id: "reports", label: "Reports & attendance", icon: FileText },
   { id: "fees", label: "Fees & receipts", icon: CreditCard }, { id: "notices", label: "Notices", icon: Bell },
-  { id: "security", label: "Change password", icon: ShieldCheck },
 ] as const;
 const buttonClass = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#581C87] px-5 text-sm font-bold text-white transition hover:bg-[#29166F] disabled:cursor-wait disabled:opacity-50";
 const inputClass = "mt-2 h-12 w-full rounded-lg border border-[#DCD5E1] bg-white px-4 text-sm outline-none focus:border-[#581C87] focus:ring-2 focus:ring-[#581C87]/15";
@@ -29,11 +32,21 @@ const date = (value: Row[string]) => {
 };
 const message = (error: unknown) => error instanceof Error ? error.message : "Unable to reach the school. Please try again.";
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
+// `npm run build:demo`: the static site has no API, so requests are answered in the browser with
+// fictional families (browserDemo.ts). That code is only downloaded by the demo build.
+const BROWSER_DEMO = import.meta.env.MODE === "demo";
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(body?.error || (response.status === 401 ? "Your session has ended. Please sign in again." : "Unable to load school records. Please try again."), response.status);
-  if (body === null && response.status !== 204) throw new Error("The school returned an unreadable response. Please try again.");
+  let status: number, body: { error?: string } | null;
+  if (BROWSER_DEMO) {
+    const { demoRequest } = await import("./browserDemo");
+    ({ status, body } = await demoRequest(path, options) as { status: number; body: { error?: string } | null });
+  } else {
+    const response = await fetch(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
+    status = response.status;
+    body = await response.json().catch(() => null);
+  }
+  if (status < 200 || status >= 300) throw new ApiError(body?.error || (status === 401 ? "Your session has ended. Please sign in again." : "Unable to load school records. Please try again."), status);
+  if (body === null && status !== 204) throw new Error("The school returned an unreadable response. Please try again.");
   return body as T;
 }
 function parentUser(user: User) {
@@ -54,7 +67,8 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loginNotice, setLoginNotice] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [challenge, setChallenge] = useState("");
+  const [details, setDetails] = useState<SignInDetails | null>(null);
   const [view, setView] = useState<View>("overview");
   const [children, setChildren] = useState<Student[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(false);
@@ -64,18 +78,24 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   const [resultTerm, setResultTerm] = useState("");
   const [reload, setReload] = useState(0);
   const [recordReload, setRecordReload] = useState(0);
-  const [passwordError, setPasswordError] = useState("");
   const [printDocument, setPrintDocument] = useState<PrintDocument | null>(null);
+  const [demoExamples, setDemoExamples] = useState<DemoExample[] | null>(null);
+  const [demoOutcome, setDemoOutcome] = useState<DemoOutcome | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const submitting = useRef(false);
 
   function clearSession() {
-    setUser(null); setChildren([]); setStudentId(""); setRecords(null); setPrintDocument(null); setPasswordError(""); setView("overview");
+    setUser(null); setChildren([]); setStudentId(""); setRecords(null); setPrintDocument(null); setView("overview");
   }
   useEffect(() => {
     const controller = new AbortController();
     setChecking(true);
     setServiceUnavailable(false);
-    checkSchoolService(controller.signal).then(() => api<{ user: User }>("/api/auth/me", { signal: controller.signal }))
+    (BROWSER_DEMO ? api<SchoolHealth>("/api/health", { signal: controller.signal }) : checkSchoolService(controller.signal)).then((health) => {
+      if (health.portalDemo) api<DemoExample[]>("/api/demo/sign-in-examples", { signal: controller.signal }).then((rows) => { if (!controller.signal.aborted && Array.isArray(rows)) setDemoExamples(rows); }).catch(() => undefined);
+      else setDemoExamples(null);
+      return api<{ user: User }>("/api/auth/me", { signal: controller.signal });
+    })
       .then(({ user: account }) => { if (!controller.signal.aborted) setUser(parentUser(account)); })
       .catch((reason) => {
         if (controller.signal.aborted) return;
@@ -129,45 +149,49 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
 
   useEffect(() => { if (printDocument) window.print(); }, [printDocument]);
 
-  const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
+  const failSignIn = (reason: unknown) => {
+    // 503 here means email sign-in is not configured yet; show the server's explanation.
+    if (reason instanceof ApiError && reason.status === 503) setError(message(reason));
+    else if (reason instanceof TypeError || (reason instanceof ApiError && reason.status >= 500)) setServiceUnavailable(true);
+    else setError(message(reason));
+  };
+  const requestCode = async (next: SignInDetails) => {
+    if (submitting.current) return;
+    submitting.current = true; setBusy(true); setError(""); setLoginNotice("");
+    try {
+      const started = await api<{ challenge: string; expires_in_minutes: number; demo?: { code: string | null } }>("/api/auth/parent/start", { method: "POST", body: JSON.stringify(next) });
+      setDetails(next); setChallenge(started.challenge);
+      setDemoOutcome(started.demo ? { code: started.demo.code, email: next.email } : null);
+      setLoginNotice(`If these details match the school's records, a 6-digit code has been sent to ${next.email}. It expires in ${started.expires_in_minutes} minutes.`);
+    } catch (reason) { failSignIn(reason); }
+    finally { submitting.current = false; setBusy(false); }
+  };
+  const startSignIn = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    void requestCode({ email: String(values.get("email") || "").trim(), unique_id: String(values.get("unique_id") || "").trim() });
+  };
+  const verifyCode = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting.current) return;
     const form = event.currentTarget;
-    const values = new FormData(form);
-    submitting.current = true; setBusy(true); setError(""); setLoginNotice("");
+    const code = String(new FormData(form).get("code") || "").replace(/\s+/g, "");
+    submitting.current = true; setBusy(true); setError("");
     try {
-      await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: String(values.get("email") || "").trim(), password: values.get("password") }) });
+      await api("/api/auth/parent/verify", { method: "POST", body: JSON.stringify({ challenge, code }) });
       const session = await api<{ user: User }>("/api/auth/me");
-      setUser(parentUser(session.user)); form.reset();
-    } catch (reason) {
-      if (reason instanceof TypeError || (reason instanceof ApiError && reason.status >= 500)) setServiceUnavailable(true);
-      else setError(message(reason));
-    }
+      setUser(parentUser(session.user)); form.reset(); setChallenge(""); setDetails(null); setLoginNotice(""); setDemoOutcome(null);
+    } catch (reason) { failSignIn(reason); }
     finally { submitting.current = false; setBusy(false); }
   };
+  const changeDetails = () => { setChallenge(""); setError(""); setLoginNotice(""); setDemoOutcome(null); };
+  const pickExample = (example: DemoExample) => { changeDetails(); setDetails({ email: example.email, unique_id: example.unique_id }); setFormKey((value) => value + 1); };
   const signOut = async () => {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError(""); clearSession();
     try { await api("/api/auth/logout", { method: "POST" }); }
     catch (reason) { setError(`Sign out could not be confirmed. ${message(reason)}`); }
     finally { submitting.current = false; setBusy(false); }
-  };
-  const changePassword = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (submitting.current) return;
-    const form = event.currentTarget;
-    const values = new FormData(form);
-    if (values.get("new_password") !== values.get("confirm_password")) {
-      setPasswordError("Your new passwords do not match."); return;
-    }
-    submitting.current = true; setBusy(true); setPasswordError("");
-    try {
-      await api("/api/auth/password", { method: "POST", body: JSON.stringify({ current_password: values.get("current_password"), new_password: values.get("new_password") }) });
-      form.reset(); clearSession(); setLoginNotice("Password changed. Please sign in again with your new password.");
-    } catch (reason) {
-      if (reason instanceof ApiError && reason.status === 401) { clearSession(); setError(message(reason)); }
-      else setPasswordError(message(reason));
-    } finally { submitting.current = false; setBusy(false); }
   };
 
   if (checking) return <main className="flex min-h-screen items-center justify-center bg-[#F4F1F7] text-[#29166F]"><p role="status">Checking your session…</p></main>;
@@ -181,14 +205,20 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
       <section className="flex min-h-[100dvh] flex-col px-5 py-6 sm:px-12">
         <div className="lg:hidden"><SchoolLogo onClick={onBackToSchool} /></div><button onClick={onBackToSchool} className="mt-6 inline-flex items-center gap-2 self-start text-sm font-bold text-[#581C87]"><ArrowLeft size={16} />School website</button>
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
-          <ShieldCheck className="mb-5 text-[#581C87]" size={40} /><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Parent portal</p><h2 className="mt-2 text-4xl font-extrabold text-[#29166F]">Welcome back.</h2><p className="mt-3 text-sm leading-6 text-[#625B69]">The school office sets up your first login and gives you your sign-in details. <a className="font-bold text-[#581C87] underline" href={`mailto:${schoolConfig.email}?subject=Parent%20portal%20account%20help`}>Email the school for account or password help</a>.</p>
+          <ShieldCheck className="mb-5 text-[#581C87]" size={40} /><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Parent portal</p><h2 className="mt-2 text-4xl font-extrabold text-[#29166F]">Welcome back.</h2><p className="mt-3 text-sm leading-6 text-[#625B69]">Sign in with the email address the school has on record for you and your child&apos;s unique ID from their enrolment record. We&apos;ll email you a one-time code to finish signing in. <a className="font-bold text-[#581C87] underline" href={`mailto:${schoolConfig.email}?subject=Parent%20portal%20sign-in%20help`}>Email the school for sign-in help</a>.</p>
           {serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}
-          <form onSubmit={signIn} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
-            <label className="block text-sm font-bold">Email address<input name="email" type="email" autoComplete="username" required disabled={busy} className={inputClass} placeholder="parent@email.com" /></label>
-            <div><label htmlFor="portal-password" className="text-sm font-bold">Password</label><div className="relative"><input id="portal-password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required disabled={busy} className={`${inputClass} pr-12`} /><button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"} className="absolute bottom-0 right-1 flex h-12 w-11 items-center justify-center text-[#625B69]">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>
-            {loginNotice ? <p role="status" className="text-sm text-emerald-700">{loginNotice}</p> : null}
+          {!challenge ? <form key={formKey} onSubmit={startSignIn} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
+            <label className="block text-sm font-bold">Email<input name="email" type="email" autoComplete="email" required disabled={busy} defaultValue={details?.email} className={inputClass} placeholder="parent@email.com" /></label>
+            <label className="block text-sm font-bold">Unique ID<input name="unique_id" type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} required maxLength={50} disabled={busy} defaultValue={details?.unique_id} className={`${inputClass} uppercase`} placeholder="e.g. ML-2025-014" aria-describedby="unique-id-help" /><span id="unique-id-help" className="mt-2 block text-xs font-normal leading-5 text-[#625B69]">Your child&apos;s Student ID, as shown on their enrolment record. Any of your children&apos;s IDs will work.</span></label>
+            {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}<button disabled={busy} className={`${buttonClass} w-full`}>{busy ? "Please wait…" : "Email me a sign-in code"}</button>
+          </form> : <form onSubmit={verifyCode} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
+            {loginNotice ? <p role="status" className="text-sm leading-6 text-emerald-700">{loginNotice}</p> : null}
+            {demoOutcome ? <div className="rounded-lg border border-dashed border-[#B7A3CC] bg-[#F7F3FB] p-4 text-sm leading-6 text-[#29166F]"><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Demo inbox</p>{demoOutcome.code ? <><p className="mt-1">In the live portal this code is emailed to {demoOutcome.email}.</p><p className="mt-2 font-mono text-2xl font-extrabold tracking-[0.3em]">{demoOutcome.code}</p></> : <p className="mt-1">These details don&apos;t match an eligible family, so no email would be sent. The parent sees exactly the same message as above, so the portal never reveals which families exist.</p>}</div> : null}
+            <label className="block text-sm font-bold">Sign-in code<input name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" maxLength={7} required disabled={busy} className={`${inputClass} tracking-[0.4em]`} placeholder="000000" /></label>
             {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}<button disabled={busy} className={`${buttonClass} w-full`}>{busy ? "Please wait…" : "Sign in securely"}</button>
-          </form>
+            <div className="flex flex-wrap justify-between gap-3 text-sm font-bold text-[#581C87]"><button type="button" disabled={busy} onClick={changeDetails}>Use different details</button><button type="button" disabled={busy || !details} onClick={() => details && void requestCode(details)}>Send a new code</button></div>
+          </form>}
+          {demoExamples && demoExamples.length > 0 && !serviceUnavailable ? <section aria-label="Demo sign-ins" className="mt-8 rounded-lg border border-dashed border-[#B7A3CC] bg-[#F7F3FB] p-4"><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Demo · fictional families</p><p className="mt-1 text-xs leading-5 text-[#625B69]">Pick an example to fill in the form, then press the button above.</p><ul className="mt-3 space-y-3">{demoExamples.map((example) => <li key={example.label}><button type="button" disabled={busy} onClick={() => pickExample(example)} className="w-full rounded-md bg-white p-3 text-left text-sm shadow-sm ring-1 ring-[#E5DFE9] transition hover:ring-[#581C87]"><span className="block font-bold text-[#29166F]">{example.label}</span><span className="block font-mono text-xs text-[#625B69]">{example.email} · {example.unique_id}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{example.expect}</span></button></li>)}</ul></section> : null}
         </div><p className="border-t border-[#E8E2ED] pt-5 text-center text-xs text-[#625B69]">Private access for Marie Louise School families</p>
       </section>
     </main>
@@ -203,19 +233,13 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   return (
     <main id="parent-portal-root" className="min-h-[100dvh] bg-[#F5F3F7] text-[#27232D]">
       <style>{`@media print { body * { visibility: hidden !important; } #parent-portal-root > header, #parent-portal-root > div { display: none !important; } #parent-portal-print, #parent-portal-print * { visibility: visible !important; } #parent-portal-print { display: block !important; position: absolute; inset: 0; padding: 20px; background: white; color: black; } #parent-portal-print table { font-size: 10px; } #parent-portal-print .overflow-x-auto { overflow: visible; } #parent-portal-print th, #parent-portal-print td { white-space: normal; } #parent-portal-print tr { break-inside: avoid; } }`}</style>
+      {demoExamples ? <p role="note" className="bg-[#E9DB3D] px-4 py-2 text-center text-xs font-bold text-[#29166F]">Demo portal: every name and record here is fictional.</p> : null}
       <header className="border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4"><SchoolLogo onClick={onBackToSchool} /><div className="flex items-center gap-4"><span className="text-sm font-bold text-[#29166F]">{user.full_name}</span><button onClick={signOut} disabled={busy} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#581C87]"><LogOut size={17} />Sign out</button></div></div></header>
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{navigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
         <section className="min-w-0 p-4 sm:p-8">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">Child<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
-          {view === "security" ? <form onSubmit={changePassword} className="max-w-md space-y-5" aria-busy={busy}>
-            <p className="text-sm leading-6 text-[#625B69]">Choose a password of at least 12 characters. You will need to sign in again after saving.</p>
-            <label className="block text-sm font-bold">Current password<input name="current_password" type="password" autoComplete="current-password" required disabled={busy} className={inputClass} /></label>
-            <label className="block text-sm font-bold">New password<input name="new_password" type="password" autoComplete="new-password" minLength={12} required disabled={busy} className={inputClass} /></label>
-            <label className="block text-sm font-bold">Confirm new password<input name="confirm_password" type="password" autoComplete="new-password" minLength={12} required disabled={busy} className={inputClass} /></label>
-            {passwordError ? <p role="alert" className="text-sm text-red-700">{passwordError}</p> : null}
-            <button disabled={busy} className={buttonClass}>{busy ? "Saving password…" : "Change password"}</button>
-          </form> : childrenLoading ? <p role="status">Loading your children…</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message="No children are linked to your account. Please contact the school office." /> : <>
+          {childrenLoading ? <p role="status">Loading your children…</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message="No children are linked to your account. Please contact the school office." /> : <>
             {selected ? <div className="mb-6 border-l-4 border-[#E9DB3D] pl-4"><h2 className="text-lg font-extrabold text-[#29166F]">{nameOf(selected)}</h2><p className="mt-1 text-sm text-[#625B69]">{selected.class_name || "Class not assigned"} · {selected.student_code}</p></div> : null}
             {!current ? <p role="status" className="py-8">Loading school records…</p> : <>
               <div className="mb-5 flex justify-end"><button onClick={retry} className="text-sm font-bold text-[#581C87]">Refresh records</button></div>

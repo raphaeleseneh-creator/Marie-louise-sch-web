@@ -12,7 +12,19 @@ The API adds missing account and enquiry tables automatically on startup. Existi
 
 The first administrator can be created once with `npm.cmd run create-admin`. It asks for a name and email and generates a strong password into `.local/initial-admin.txt`. This folder is excluded from Git. Open the file locally, save the details in a password manager, sign in, change the password in Account settings, and delete the local credential file when no longer needed.
 
-Use Accounts in the dashboard to create additional administrators, teachers, bursars, and parents. Use at least 12 characters for passwords. Link parent accounts to an existing guardian record and link that guardian to their children. Assign classes to teachers. Account deactivation or password reset revokes existing sessions. Passwords are stored as salted scrypt hashes. Browser sessions expire after eight hours; logout and password change revoke them.
+Use Accounts in the dashboard to create additional administrators, teachers and bursars. Use at least 12 characters for passwords. Assign classes to teachers. Parents do not need an account created for them (see below); an administrator can still create or deactivate one.
+
+### Parent sign-in (Email + Unique ID)
+
+Parents sign in at the parent portal with the **email address on their Parents record** and their child's **unique ID**: the pupil's Student ID (`StudentIDCode` in Airtable, e.g. `ML-2025-014`, stored as `students.student_code`). Any of their linked children's IDs works. The server then emails a 6-digit one-time code to that address; entering it opens the portal. No staff approval, separate registration, password or Google account is needed. The first successful sign-in creates the parent's portal account automatically; an existing parent account for the same parent record is reused.
+
+Access requires all of: an active pupil with that Student ID, an active parent record with that email, and a recorded guardian-child link between them (from Airtable or added by staff). After sign-in the parent sees every active child linked to their parent record. If anything is missing or ambiguous (for example the email also belongs to a staff account, or two parent records share an email), sign-in fails with the same generic message and no code is sent.
+
+Why a code is required: Student IDs are sequential and appear on school documents, so they identify a child but cannot prove who is signing in. Codes expire after 10 minutes, are single-use and allow 5 attempts. Sign-in is limited to 10 code requests per IP and 5 per email address every 15 minutes. Student IDs and codes are never logged or stored (only hashes).
+
+Email delivery must be configured before parents can sign in: set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM` in `.env` (use a school-owned mailbox). Without them the portal shows "Parent sign-in is not available yet". For local testing only, `MAIL_TRANSPORT=dev-outbox` writes messages to `.local/outbox` instead of sending them; it is ignored when `NODE_ENV=production`.
+
+To remove a parent's access, delete or revoke the link in Airtable (`ParentStudentLinks.Link_Status = Revoked`, an `End_Date` in the past, or unlinking the Parents/Students link fields), set the parent's `Portal Access` to Suspended/Disabled, or set the pupil to Inactive. The change applies on the next Airtable sync. Deactivating the account in Accounts also blocks sign-in immediately. Account deactivation or password reset revokes existing sessions. Passwords are stored as salted scrypt hashes. Browser sessions expire after eight hours; logout and password change revoke them.
 
 - Administrators manage school records and publish results.
 - Teachers manage results, attendance, and notices for their assigned classes. They submit results as pending for administrator approval.
@@ -35,7 +47,15 @@ Public admissions and tour forms save requests before showing confirmation. Thei
 
 ## Airtable
 
-Student sync needs the token, base ID and table ID in `.env`. It remains administrator-only. A class name lookup (`Class Name` or `Class_Name`) should resolve Airtable linked class IDs. Decide which system owns student records before syncing: Airtable can overwrite matching student details. Other Airtable table syncs are outside this implementation.
+Airtable is the source of enrolment and family records. New and corrected Airtable records reach the portal only when a sync runs; there is no instant push from Airtable.
+
+- `npm.cmd run sync:airtable` reads Classes, Students, Parents, ParentStudentLinks, Academic Session, Terms, Academic Results, Attendance, Fees and Payments from the Airtable API and applies them with the validated importer below, in one database transaction. Add `-- --dry-run` to report without writing. Only one sync runs at a time.
+- The dashboard's **Sync students from Airtable** button runs the same full sync.
+- Schedule `npm.cmd run sync:airtable` (Windows Task Scheduler or cron), for example every 15 minutes. That interval is how long a new enrolment, a corrected email or a removed link takes to reach the portal.
+
+The sync needs `AIRTABLE_API_TOKEN` (read access to the base) and `AIRTABLE_BASE_ID` in `.env`. Imported guardian-child links are removed when Airtable no longer records them; links that staff add directly in the portal are kept.
+
+For each family to be able to sign in, Airtable must have: a Parents record with a valid, unique `ParentEmail`; the pupil's `StudentIDCode`; the pupil linked to a class (`Student Class`); and a link between parent and pupil, either through `Parents.Students` (or `Students 2`/`Students 3`) or a `ParentStudentLinks` row with `Parent` and `Student` set. Links found only by matching an email (`ParentEmail_Student`) are never used.
 
 ### Local Airtable JSON Importer
 
@@ -62,6 +82,6 @@ Run `npm.cmd run lint`, `npm.cmd run build` and `npm.cmd run test:server`. Datab
 
 ## Migration recovery and hosting
 
-Before using production data, take a MySQL backup and test restoration. The new tables are `accounts`, `staff_classes`, `sessions`, `admissions`, and `tours`. There is no automatic destructive rollback. To undo code deployment, stop the new API, restore the prior code, and leave the additive tables intact. If new account or enquiry data must be removed, export it first and explicitly review the exact tables; never drop the existing student or finance tables as part of this migration.
+Before using production data, take a MySQL backup and test restoration. The new tables are `accounts`, `staff_classes`, `sessions`, `admissions`, `tours` and `parent_sign_in_challenges`. There is no automatic destructive rollback. To undo code deployment, stop the new API, restore the prior code, and leave the additive tables intact. If new account or enquiry data must be removed, export it first and explicitly review the exact tables; never drop the existing student or finance tables as part of this migration.
 
-Hosting requires HTTPS with `NODE_ENV=production`, a correct `APP_ORIGIN`, a private database connection, regular backups, and school-owned hosting accounts. Secure cookies require HTTPS in production. The local API binds to loopback by default. Configure a trusted reverse proxy deliberately if changing that architecture. The in-memory request limiter protects the current single API process; shared rate limiting is needed if running multiple servers. There are no online card payments or automatic emails in this version.
+Hosting requires HTTPS with `NODE_ENV=production`, a correct `APP_ORIGIN`, a private database connection, regular backups, and school-owned hosting accounts. Secure cookies require HTTPS in production. The local API binds to loopback by default. Configure a trusted reverse proxy deliberately if changing that architecture. The in-memory request limiter protects the current single API process; shared rate limiting is needed if running multiple servers. The limiter keys on the connecting IP: if a reverse proxy is added, configure `trust proxy` deliberately or every parent will share one limit. There are no online card payments in this version; the only automatic emails are parent sign-in codes.
