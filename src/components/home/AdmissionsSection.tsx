@@ -61,8 +61,8 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
                     Submit Application &amp; Student Records
                   </h4>
                   <p className="text-xs text-[#625B69] mt-0.5 leading-relaxed">
-                    Complete our online application form with your child&apos;s details
-                    and intended class (Early Years or Primary).
+                    Complete the school&apos;s Google Form with your child&apos;s details.
+                    The school will review your submission and contact you.
                   </p>
                 </div>
               </div>
@@ -123,7 +123,8 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
             </div>
 
             <p className="text-xs sm:text-sm text-[#625B69] mb-6">
-              Please choose the specific class for your child to begin the admission inquiry or full application:
+              Browse the classes below, then continue to the school&apos;s Google Form.
+              You will need to enter the class on the form.
             </p>
 
             {/* Single Select Radio/Button Matrix using SCHOOL_CLASSES - strict scope */}
@@ -196,7 +197,7 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
               </div>
             ) : (
               <p className="text-xs text-[#625B69] italic mb-6">
-                * Click on any class above to pre-fill your application.
+                Review the classes above, then complete your details on the Google Form.
               </p>
             )}
 
@@ -207,7 +208,7 @@ export const AdmissionsSection: React.FC<AdmissionsSectionProps> = ({
                 onClick={() => onStartApplication(selectedClass || undefined)}
                 className="w-full py-4 px-6 rounded-xl bg-[#581C87] hover:bg-[#29166F] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer group"
               >
-                <span>Start Your Application {selectedClass ? `for ${selectedClass}` : ""}</span>
+                <span>Apply using Google Form</span>
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
 

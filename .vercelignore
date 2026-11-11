@@ -1,0 +1,13 @@
+.git
+node_modules
+dist
+.local
+.env*
+!.env.example
+output
+airtable-exports
+MLS SCHEMAs
+*.dump
+backup-*.sql
+*.log
+site-package.tar.gz

@@ -1,15 +1,7 @@
 import "dotenv/config";
 import mysql from "mysql2/promise";
+import { attachDatabasePool } from '@vercel/functions';
+import { databaseOptions } from './database-config.js';
 
-export const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST,
-  port: Number(process.env.MYSQL_PORT || 3306),
-  database: process.env.MYSQL_DATABASE,
-  user: process.env.MYSQL_USER,
-  password: process.env.MYSQL_PASSWORD,
-  waitForConnections: true,
-  connectionLimit: 10,
-  dateStrings: true,
-  connectTimeout: 10000,
-  queueLimit: 0,
-});
+export const pool = mysql.createPool(databaseOptions(process.env));
+if (process.env.VERCEL) attachDatabasePool(pool.pool);

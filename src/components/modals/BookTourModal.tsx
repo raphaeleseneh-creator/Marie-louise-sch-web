@@ -30,9 +30,11 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (saving.current || isSubmitted) return;
+    const submittedFields = new FormData(e.currentTarget);
+    const payload = { ...formData, preferredDate: String(submittedFields.get("preferredDate") || "") };
     saving.current = true;
     setIsSaving(true);
     setSubmitError("");
@@ -41,7 +43,7 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error || "Your tour request could not be saved. Please try again.");
@@ -161,11 +163,13 @@ export const BookTourModal: React.FC<BookTourModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-[#27232D] mb-1">
+                  <label htmlFor="tour-preferred-date" className="block text-xs font-bold text-[#27232D] mb-1">
                     Preferred Date *
                   </label>
                   <input
                     type="date"
+                    id="tour-preferred-date"
+                    name="preferredDate"
                     required
                     value={formData.preferredDate}
                     onChange={(e) =>

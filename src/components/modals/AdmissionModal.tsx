@@ -37,9 +37,11 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (saving.current || isSubmitted) return;
+    const submittedFields = new FormData(e.currentTarget);
+    const payload = { ...formData, childDateOfBirth: String(submittedFields.get("childDateOfBirth") || "") };
     saving.current = true;
     setIsSaving(true);
     setSubmitError("");
@@ -48,7 +50,7 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error || "Your application could not be saved. Please try again.");
@@ -173,11 +175,13 @@ export const AdmissionModal: React.FC<AdmissionModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-[#27232D] mb-1.5">
+                    <label htmlFor="admission-birth-date" className="block text-xs font-bold text-[#27232D] mb-1.5">
                       Date of Birth *
                     </label>
                     <input
                       type="date"
+                      id="admission-birth-date"
+                      name="childDateOfBirth"
                       required
                       value={formData.childDateOfBirth}
                       onChange={(e) =>

@@ -3,9 +3,8 @@ import { randomBytes } from 'node:crypto';
 import calendar from '../schema/academic-calendar.json' with { type: 'json' };
 import { termLabel } from './academic-calendar.js';
 import { hashPassword } from './auth.js';
-import { DEMO_CLASSES, DEMO_PUPILS, DEMO_PARENTS, SIGN_IN_EXAMPLES, buildDemoRecords, demoTerm } from '../shared/portal-demo.js';
+import { DEMO_CLASSES, DEMO_PUPILS, DEMO_PARENTS, buildDemoRecords, demoTerm } from '../shared/portal-demo.js';
 
-export { SIGN_IN_EXAMPLES };
 
 /** Fills an EMPTY demo database. `db` is a single connection inside a transaction. */
 export async function seedDemo(db) {

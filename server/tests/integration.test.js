@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
 
 // Opt in only against the existing local database; no migrations or seed data run.
-test('real database API boundaries and transactions', {skip: process.env.RUN_DB_TESTS !== '1', timeout: 120000}, async t => {
+test('real database API boundaries and transactions', {skip: process.env.RUN_DB_TESTS !== '1', timeout: Number(process.env.DB_TEST_TIMEOUT_MS || 120000)}, async t => {
   const {app} = await import('../app.js');
   const {pool} = await import('../db.js');
   const {hashPassword} = await import('../auth.js');
@@ -72,7 +72,7 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
   }
   const hash = await hashPassword(password);
   const accounts = {};
-  for (const name of ['admin','teacher','bursar','parent0','parent1']) {
+  for (const name of ['developer','admin','teacher','bursar','parent0','parent1']) {
     const role = name.startsWith('parent') ? 'parent' : name;
     accounts[name] = await insert('accounts', 'INSERT INTO accounts(full_name,email,password_hash,role,parent_id) VALUES (?,?,?,?,?)', [`${prefix}_${name}`, `${prefix}_${name}@example.invalid`, hash, role, role === 'parent' ? parents[Number(name.at(-1))] : null]);
   }
@@ -84,7 +84,7 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
   async function request(role, method, path, body, expected = 200, headers = {}) {
     const response = await fetch(base + '/api' + path, {
       method, headers: {...(body === undefined ? {} : {'Content-Type':'application/json'}), ...(cookies[role] ? {Cookie:cookies[role]} : {}), ...headers},
-      ...(body === undefined ? {} : {body:JSON.stringify(body)}), signal:AbortSignal.timeout(10000),
+      ...(body === undefined ? {} : {body:JSON.stringify(body)}), signal:AbortSignal.timeout(30000),
     });
     const data = await response.json();
     assert.equal(response.status, expected, `${role || 'anonymous'} ${method} ${path}: ${JSON.stringify(data)}`);
@@ -98,6 +98,61 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
     assert.match(cookies[name], /^ml_session=[a-f0-9]{64}$/);
   }
   const result = (student, subject, status = 'draft') => ({student_id:student, term_id:'reccR4ZBVMQoLeZbn', subject, ca1_score:10, ca2_score:20, exam_score:60, publication_status:status});
+  await t.test('parent portal preview list is Developer-only and exposes only selector fields',async()=>{
+    const path='/developer/parent-portal/students';
+    const {data}=await request('developer','GET',path);
+    assert.ok(students.every(id=>data.some(row=>row.id===id)));
+    assert.deepEqual(Object.keys(data[0]).sort(),['id','student_code','first_name','last_name','class_name'].sort());
+    for(const role of ['admin','teacher','bursar','parent0','parent1'])await request(role,'GET',path,undefined,403);
+    await request(null,'GET',path,undefined,401);
+    await request('developer','GET',`/students/${students[0]}/dashboard`);
+    await request('developer','GET',`/students/${students[0]}/results`);
+    await request('developer','GET',`/students/${students[0]}/attendance`);
+    await request('developer','GET',`/students/${students[0]}/fees`);
+    await request('parent0','GET',`/students/${students[1]}/dashboard`,undefined,403);
+    await request('developer','GET',`/students/${students[0]}/portal-records`);
+  });
+  await t.test('developer retains management access and ordinary admins cannot alter developer accounts',async()=>{
+    assert.equal((await request('developer','GET','/auth/me')).data.user.role,'developer');
+    const listed=(await request('developer','GET','/accounts')).data;
+    assert.ok(listed.some(account=>account.id===accounts.developer&&account.role==='developer'));
+    await request('developer','GET','/classes');
+    await request('developer','GET','/parents');
+    await request('developer','GET','/fees');
+    await request('developer','GET','/results');
+    await request('developer','GET','/students');
+    const created=await request('developer','POST','/accounts',{full_name:`${prefix}_manager`,email:`${prefix}_manager@example.invalid`,password,role:'admin'},201);
+    owned.accounts.push(created.data.id);
+    const managerLogin=await request(null,'POST','/auth/login',{email:`${prefix}_manager@example.invalid`,password});
+    cookies.manager=managerLogin.response.headers.get('set-cookie').split(';')[0];
+    await request('teacher','PATCH',`/accounts/${created.data.id}`,{active:false},403);
+    await request('developer','PATCH',`/accounts/${accounts.developer}`,{active:false},400);
+    await request('developer','PATCH',`/accounts/${created.data.id}`,{active:false});
+    await request('manager','GET','/auth/me',undefined,401);
+    await request(null,'POST','/auth/login',{email:`${prefix}_manager@example.invalid`,password},401);
+    const [[disabledManager]]=await pool.query('SELECT active FROM accounts WHERE id=?',[created.data.id]);
+    assert.equal(Number(disabledManager.active),0,'account is preserved with access disabled');
+    await request('developer','PATCH',`/accounts/${created.data.id}`,{active:true});
+    const [[restoredManager]]=await pool.query('SELECT active FROM accounts WHERE id=?',[created.data.id]);
+    assert.equal(Number(restoredManager.active),1,'Developer can restore access without deleting records');
+    await request('admin','PATCH',`/accounts/${accounts.developer}`,{active:false},403);
+    await request('admin','POST','/accounts',{full_name:'Not allowed',email:`${prefix}_forbidden@example.invalid`,password,role:'developer'},400);
+  });
+  await t.test('empty logout revokes sessions, clears cookies and retains origin and JSON protection',async()=>{
+    await request('developer','POST','/auth/logout',undefined,403,{Origin:'https://unexpected.example.invalid'});
+    await request('developer','GET','/auth/me');
+    const logout=await request('developer','POST','/auth/logout',undefined,200,{'Content-Type':'application/json'});
+    assert.match(logout.response.headers.get('set-cookie'),/ml_session=;/);
+    await request('developer','GET','/auth/me',undefined,401);
+    await request('developer','GET','/students',undefined,401);
+    await request(null,'POST','/auth/logout',undefined,200);
+    await request(null,'POST','/auth/login',undefined,415);
+    await request('parent0','POST','/auth/logout',{});
+    await request('parent0','GET','/auth/me',undefined,401);
+    const response=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:`${prefix}_parent0@example.invalid`,password})});
+    assert.equal(response.status,200);
+    cookies.parent0=response.headers.get('set-cookie').split(';')[0];
+  });
   async function login(name, value = password, cookieName = name) {
     const {data, response} = await request(null,'POST','/auth/login',{email:`${prefix}_${name}@example.invalid`,password:value});
     cookies[cookieName] = response.headers.get('set-cookie').split(';')[0];
@@ -205,6 +260,11 @@ test('real database API boundaries and transactions', {skip: process.env.RUN_DB_
       const rows = (await request(role,'GET',`/students/${students[i]}/results`)).data;
       assert.equal(rows.length,1);
       assert.equal(rows[0].publication_status,'published');
+      const combined=(await request(role,'GET',`/students/${students[i]}/portal-records`)).data;
+      assert.equal(Number(combined.dashboard.data.student.id),Number(students[i]));
+      assert.deepEqual(combined.results.data.map(row=>row.id),rows.map(row=>row.id));
+      await request(role,'GET',`/students/${students[other]}/portal-records`,undefined,403);
+      for(const staffRole of ['teacher','bursar','admin'])await request(staffRole,'GET',`/students/${students[i]}/portal-records`,undefined,403);
       for (const suffix of ['dashboard','results','attendance','fees']) await request(role,'GET',`/students/${students[other]}/${suffix}`,undefined,403);
       await request(role,'GET',`/payments?student_id=${students[other]}`,undefined,403);
       await request(role,'POST','/results',result(students[i],'parent_write'),403);

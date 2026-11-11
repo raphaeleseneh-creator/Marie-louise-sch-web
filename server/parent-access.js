@@ -60,20 +60,22 @@ export async function resolveSignInMatch(db, email, uniqueId) {
  *   after the guardian's email was corrected in Airtable).
  */
 async function existingAccountFor(db, parentId, email) {
-  const [byEmail] = await db.query('SELECT id, role, parent_id, active FROM accounts WHERE LOWER(TRIM(email)) = ?', [
+  // Self-registered or Google-created accounts that were never linked by the school have
+  // parent_id NULL or registration_pending set: their ownership is unconfirmed, so they never match.
+  const [byEmail] = await db.query('SELECT id, role, parent_id, active, registration_pending FROM accounts WHERE LOWER(TRIM(email)) = ?', [
     email,
   ]);
   if (byEmail.length > 1) return { status: 'ambiguous' };
   if (byEmail.length === 1) {
     const [account] = byEmail;
     if (account.role !== 'parent' || Number(account.parent_id) !== Number(parentId)) return { status: 'ambiguous' };
-    if (!account.active) return { status: 'ineligible' };
+    if (!account.active || account.registration_pending) return { status: 'ineligible' };
     return { status: 'ok', accountId: account.id };
   }
-  const [byParent] = await db.query("SELECT id, active FROM accounts WHERE role = 'parent' AND parent_id = ?", [parentId]);
+  const [byParent] = await db.query("SELECT id, active, registration_pending FROM accounts WHERE role = 'parent' AND parent_id = ?", [parentId]);
   if (byParent.length > 1) return { status: 'ambiguous' };
   if (byParent.length === 1) {
-    if (!byParent[0].active) return { status: 'ineligible' };
+    if (!byParent[0].active || byParent[0].registration_pending) return { status: 'ineligible' };
     return { status: 'ok', accountId: byParent[0].id, emailChanged: true };
   }
   return { status: 'ok', accountId: null };

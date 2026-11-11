@@ -101,29 +101,34 @@ function handle(path: string, method: string, body: Record<string, unknown>): Re
     if (Number(children[1]) !== parentId) return error(403, "You can only view your own children.");
     return ok([...mine].sort((a, b) => a.first.localeCompare(b.first)).map(studentRow));
   }
-  const studentRoute = route.match(/^\/api\/students\/(\d+)\/(dashboard|results|attendance|fees)$/);
+  const studentRoute = route.match(/^\/api\/students\/(\d+)\/(dashboard|results|attendance|fees|portal-records)$/);
   const studentId = studentRoute ? Number(studentRoute[1]) : route === "/api/payments" ? Number(url.searchParams.get("student_id")) : null;
   if (studentId === null) return error(404, "Endpoint not found.");
   const pupil = mine.find((p) => p.id === studentId);
   if (!pupil) return pupils.some((p) => p.id === studentId) ? error(403, "This student is not linked to your account.") : error(404, "Student not found.");
   const ownInvoices = invoices.filter((inv) => inv.student_id === pupil.id);
-  if (route === "/api/payments") {
-    return ok(ownInvoices.flatMap((inv) => inv.payments.map((p) => ({ ...p, student_id: pupil.id, invoice_number: inv.invoice_number, description: inv.description, student_name: `${pupil.first} ${pupil.last}` })))
-      .sort((a, b) => b.payment_date.localeCompare(a.payment_date) || b.id - a.id));
-  }
-  const kind = studentRoute![2];
   const days = attendance.filter((a) => a.student_id === pupil.id);
-  if (kind === "results") return ok(results.filter((r) => r.student_id === pupil.id).sort((a, b) => a.term_name.localeCompare(b.term_name) || a.subject.localeCompare(b.subject)));
-  if (kind === "attendance") return ok([...days].sort((a, b) => b.attendance_date.localeCompare(a.attendance_date)));
-  if (kind === "fees") return ok(ownInvoices.map(invoiceRow).sort((a, b) => b.id - a.id));
-  const visibleNotices = notices.filter((n) => n.is_published && (n.audience === "school" || (n.audience === "class" && n.class_id === pupil.class_id) || (n.audience === "student" && n.student_id === pupil.id)))
-    .sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)));
-  return ok({
+  const paymentRows = () => ownInvoices.flatMap((inv) => inv.payments.map((p) => ({ ...p, student_id: pupil.id, invoice_number: inv.invoice_number, description: inv.description, student_name: `${pupil.first} ${pupil.last}` })))
+    .sort((a, b) => b.payment_date.localeCompare(a.payment_date) || b.id - a.id);
+  const resultRows = () => results.filter((r) => r.student_id === pupil.id).sort((a, b) => a.term_name.localeCompare(b.term_name) || a.subject.localeCompare(b.subject));
+  const attendanceRows = () => [...days].sort((a, b) => b.attendance_date.localeCompare(a.attendance_date));
+  const feeRows = () => ownInvoices.map(invoiceRow).sort((a, b) => b.id - a.id);
+  const dashboard = () => ({
     student: studentRow(pupil),
     attendance: { total_days: days.length, days_present: days.filter((a) => a.status === "present").length, days_absent: days.filter((a) => a.status === "absent").length, other_days: days.filter((a) => a.status === "late" || a.status === "excused").length },
     fees: { total_due: ownInvoices.reduce((sum, inv) => sum + inv.amount_due, 0), total_paid: ownInvoices.reduce((sum, inv) => sum + inv.payments.reduce((s, p) => s + p.amount_paid, 0), 0) },
-    announcements: visibleNotices,
+    announcements: notices.filter((n) => n.is_published && (n.audience === "school" || (n.audience === "class" && n.class_id === pupil.class_id) || (n.audience === "student" && n.student_id === pupil.id)))
+      .sort((a, b) => String(b.published_at).localeCompare(String(a.published_at))),
   });
+  if (route === "/api/payments") return ok(paymentRows());
+  const kind = studentRoute![2];
+  if (kind === "results") return ok(resultRows());
+  if (kind === "attendance") return ok(attendanceRows());
+  if (kind === "fees") return ok(feeRows());
+  if (kind === "dashboard") return ok(dashboard());
+  // One request for every tab, matching server/portal-records.js.
+  const loaded = <T,>(data: T) => ({ data, error: "" });
+  return ok({ dashboard: loaded(dashboard()), results: loaded(resultRows()), attendance: loaded(attendanceRows()), fees: loaded(feeRows()), payments: loaded(paymentRows()) });
 }
 
 /** Stands in for fetch() on the demo build. Resolves like a JSON API response. */

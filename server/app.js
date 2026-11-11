@@ -1,3 +1,5 @@
+import {installPortalRecords} from './portal-records.js';
+import {readWithReconnect} from './resilient-read.js';
 import express from 'express';
 import {randomBytes} from 'node:crypto';
 import {pool} from './db.js';
@@ -8,7 +10,10 @@ import {normalizeUniqueId,resolveSignInMatch,createChallenge,redeemChallenge,sig
 import {mailMode,sendMail} from './mailer.js';
 import {runAirtableSync} from './sync-airtable.js';
 import {portalDemoMode} from './demo-mode.js';
-import {SIGN_IN_EXAMPLES} from './demo-data.js';
+import {SIGN_IN_EXAMPLES} from '../shared/portal-demo.js';
+import { installGoogleAuth } from './google-auth.js';
+import {installEnrollment} from './enrollment.js';
+import {issueSession} from './auth.js';
 export const app=express();
 app.disable('x-powered-by');
 app.set('trust proxy',false);
@@ -19,7 +24,10 @@ app.use((req,res,next)=>{
     const origin=req.get('origin');
     const localPreview=process.env.NODE_ENV!=='production' && ['http://localhost:3000','http://127.0.0.1:3000'].includes(origin);
     if(origin && !localPreview && origin!==`http://${req.get('host')}` && origin!==`https://${req.get('host')}` && origin!==process.env.APP_ORIGIN) return res.status(403).json({error:'Request origin is not allowed.'});
-    if(!req.is('application/json'))return res.status(415).json({error:'Send JSON data.'});
+    // Sign-out has no input. Older browsers/clients send an empty POST, for
+    // which Express returns null from req.is(), even with a JSON header.
+    const emptyLogout=req.path==='/api/auth/logout'&&!req.get('transfer-encoding')&&(!req.get('content-length')||req.get('content-length')==='0');
+    if(!emptyLogout&&!req.is('application/json'))return res.status(415).json({error:'Send JSON data.'});
   }
   next();
 });
@@ -31,27 +39,23 @@ const tooMany=res=>res.status(429).json({error:'Too many requests. Please try ag
 function limit(prefix,max){return(req,res,next)=>overLimit(prefix+req.ip,max)?tooMany(res):next();}
 export function resetRateLimitsForTesting(){buckets.clear();}
 const cleanup=setInterval(()=>{for(const [key,b]of buckets)if(b.until<Date.now())buckets.delete(key);},60000);cleanup.unref();
+app.get('/api/health',wrap(async(_req,res)=>{await readWithReconnect(pool,'SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE),portalDemo:portalDemoMode()});}));
 app.use(identify);
-app.get('/api/health',wrap(async(_req,res)=>{await pool.query('SELECT 1');res.json({ok:true,database:'connected',airtableConfigured:Boolean(process.env.AIRTABLE_API_TOKEN&&process.env.AIRTABLE_BASE_ID&&process.env.AIRTABLE_STUDENTS_TABLE),portalDemo:portalDemoMode()});}));
 // Demo only (npm run demo): fictional sign-in examples for the portal's demo panel.
 app.get('/api/demo/sign-in-examples',(_req,res)=>portalDemoMode()?res.json(SIGN_IN_EXAMPLES):res.status(404).json({error:'Endpoint not found.'}));
+installGoogleAuth(app,{wrap,limit});
+installEnrollment(app,{wrap,limit});
+installPortalRecords(app,wrap);
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api'};
 app.post('/api/auth/login',limit('login',20),wrap(async(req,res)=>{
   const address=email(req.body.email),password=text(req.body.password,'Password',200);
-  const [[account]]=await pool.query('SELECT * FROM accounts WHERE email=? AND active=TRUE',[address]);
+  const [[account]]=await readWithReconnect(pool,'SELECT * FROM accounts WHERE email=? AND (active=TRUE OR (role=\'parent\' AND active=FALSE AND registration_pending=TRUE AND parent_id IS NULL))',[address]);
   const valid=account?await verifyPassword(password,account.password_hash):await verifyPassword(password,await hashPassword('unused-password-padding'));
   if(!account||!valid)fail(401,'Email or password is incorrect.');
-  if(account.role==='parent'){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}
-  await startSession(req,res,account.id);
+  if(account.role==='parent'&&!account.registration_pending){const [[p]]=await pool.query("SELECT 1 FROM parents WHERE id=? AND status='active'",[account.parent_id]);if(!p)fail(403,'Contact the school office to activate your parent record.');}
+  await issueSession(req,res,account);
   const {id,full_name,role,parent_id}=account;res.json({user:{id,full_name,role,parent_id}});
 }));
-async function startSession(req,res,accountId){
-  const previous=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);
-  if(previous)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(previous)]);
-  await pool.query('DELETE FROM sessions WHERE expires_at<NOW()');
-  const token=randomBytes(32).toString('hex');await pool.query('INSERT INTO sessions(token_hash,account_id,expires_at) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 8 HOUR))',[digest(token),accountId]);
-  res.cookie('ml_session',token,{...cookieOptions,maxAge:8*60*60*1000});
-}
 // Parent sign-in step 1: Email + Unique ID (pupil's Student ID code). The response is identical
 // whether or not the pair matches, so it reveals nothing about families. A code is emailed only
 // to the address on the matching parent record.
@@ -77,14 +81,18 @@ app.post('/api/auth/parent/verify',limit('parent-verify',30),wrap(async(req,res)
   catch(error){await db.rollback();if(error.code==='ER_DUP_ENTRY')fail(401,GENERIC_SIGN_IN_ERROR);throw error;}
   finally{db.release();}
   if(!accountId)fail(401,GENERIC_SIGN_IN_ERROR);
-  await startSession(req,res,accountId);
+  await issueSession(req,res,{id:accountId});
   const [[user]]=await pool.query('SELECT id,full_name,role,parent_id FROM accounts WHERE id=?',[accountId]);
   res.json({user});
 }));
-app.get('/api/auth/me',all,(req,res)=>res.json({user:req.user}));
+app.get('/api/auth/me',(req,res)=>req.user?res.json({user:req.user}):res.status(401).json({error:'Please sign in.'}));
 app.post('/api/auth/logout',wrap(async(req,res)=>{const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('ml_session='))?.slice(11);if(token)await pool.query('DELETE FROM sessions WHERE token_hash=?',[digest(token)]);res.clearCookie('ml_session',cookieOptions);res.json({ok:true});}));
 app.post('/api/auth/password',all,wrap(async(req,res)=>{const [[a]]=await pool.query('SELECT password_hash FROM accounts WHERE id=?',[req.user.id]);if(!await verifyPassword(text(req.body.current_password,'Current password',200),a.password_hash))fail(400,'Current password is incorrect.');const password=text(req.body.new_password,'New password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await pool.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),req.user.id]);await pool.query('DELETE FROM sessions WHERE account_id=?',[req.user.id]);res.clearCookie('ml_session',cookieOptions);res.json({ok:true});}));
-app.get('/api/accounts',requireAdmin,wrap(async(_req,res)=>{const [rows]=await pool.query('SELECT id,full_name,email,role,parent_id,active FROM accounts ORDER BY full_name');const [links]=await pool.query('SELECT account_id,class_id FROM staff_classes');res.json(rows.map(r=>({...r,class_ids:links.filter(x=>x.account_id===r.id).map(x=>x.class_id)})));}));
+app.get('/api/accounts',requireAdmin,wrap(async(_req,res)=>{const [rows]=await pool.query('SELECT id,full_name,email,role,parent_id,active,registration_pending,(google_sub IS NOT NULL) google_linked FROM accounts ORDER BY registration_pending DESC,full_name');const [links]=await pool.query('SELECT account_id,class_id FROM staff_classes');res.json(rows.map(r=>({...r,class_ids:links.filter(x=>x.account_id===r.id).map(x=>x.class_id)})));}));
+app.get('/api/developer/parent-portal/students',roles('developer'),wrap(async(_req,res)=>{
+  const [rows]=await pool.query("SELECT s.id,s.student_code,s.first_name,s.last_name,c.name class_name FROM students s LEFT JOIN classes c ON c.id=s.class_id WHERE s.enrollment_status='active' ORDER BY s.last_name,s.first_name");
+  res.json(rows);
+}));
 app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const b=req.body,role=choice(b.role,['admin','teacher','bursar','parent'],'role'),password=text(b.password,'Password',200);if(password.length<12)fail(400,'Use a password of at least 12 characters.');
   const parentId=role==='parent'?positiveId(b.parent_id):null;if(role==='parent'&&!parentId)fail(400,'Link this account to a parent record.');
@@ -92,7 +100,7 @@ app.post('/api/accounts',requireAdmin,wrap(async(req,res)=>{
   const hash=await hashPassword(password),db=await pool.getConnection();
   try{await db.beginTransaction();const [result]=await db.query('INSERT INTO accounts(full_name,email,password_hash,role,parent_id) VALUES (?,?,?,?,?)',[text(b.full_name,'Name',150),email(b.email),hash,role,parentId]);if(role==='teacher')for(const id of new Set(classIds))await db.query('INSERT INTO staff_classes(account_id,class_id) VALUES (?,?)',[result.insertId,id]);await db.commit();res.status(201).json({id:result.insertId});}catch(error){await db.rollback();throw error;}finally{db.release();}
 }));
-app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
+app.patch('/api/accounts/:id',requireAdmin,wrap(async(req,res)=>{const id=positiveId(req.params.id);if(!id)fail(400,'Invalid account.');if(id===req.user.id)fail(400,'Use your profile to change your own password.');const db=await pool.getConnection();try{await db.beginTransaction();const [[account]]=await db.query('SELECT * FROM accounts WHERE id=? FOR UPDATE',[id]);if(!account)fail(404,'Account not found.');if(account.role==='developer'&&req.user.role!=='developer')fail(403,'Only a developer can manage developer accounts.');if(account.registration_pending){if(req.body.active!==false)fail(409,'Parents link their children themselves using school-issued details.');await db.query('UPDATE accounts SET active=FALSE,registration_pending=FALSE WHERE id=?',[id]);await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});return;}if(req.body.password){const password=text(req.body.password,'Password',200);if(password.length<12)fail(400,'Use at least 12 characters.');await db.query('UPDATE accounts SET password_hash=? WHERE id=?',[await hashPassword(password),id]);}if(req.body.active!==undefined){if(typeof req.body.active!=='boolean')fail(400,'Active must be true or false.');await db.query('UPDATE accounts SET active=? WHERE id=?',[req.body.active,id]);}if(req.body.class_ids!==undefined){if(account.role!=='teacher'||!Array.isArray(req.body.class_ids)||req.body.class_ids.some(x=>!positiveId(x)))fail(400,'Choose valid classes for a teacher.');await db.query('DELETE FROM staff_classes WHERE account_id=?',[id]);for(const classId of new Set(req.body.class_ids))await db.query('INSERT INTO staff_classes VALUES (?,?)',[id,classId]);}await db.query('DELETE FROM sessions WHERE account_id=?',[id]);await db.commit();res.json({ok:true});}catch(error){await db.rollback();throw error;}finally{db.release();}}));
 app.get('/api/students',all,wrap(async(req,res)=>{const scope=studentScope(req.user);const params=[...scope.params];let filter=scope.sql;if(req.query.class_id){filter+=' AND s.class_id=?';params.push(number(req.query.class_id,'Class',1));}const [rows]=await pool.query(`SELECT s.*,c.name AS class_name FROM students s LEFT JOIN classes c ON c.id=s.class_id WHERE ${filter} ORDER BY s.last_name,s.first_name`,params);res.json(rows);}));
 app.get('/api/classes',staff,wrap(async(req,res)=>{const teacher=req.user.role==='teacher';const [rows]=await pool.query(`SELECT id,name FROM classes ${teacher?'WHERE id IN (SELECT class_id FROM staff_classes WHERE account_id=?)':''} ORDER BY name`,teacher?[req.user.id]:[]);res.json(rows);}));
 app.post('/api/classes',requireAdmin,wrap(async(req,res)=>{const name=text(req.body.name,'Class name',100);const [r]=await pool.query('INSERT INTO classes(name) VALUES (?)',[name]);res.status(201).json({id:r.insertId,name});}));

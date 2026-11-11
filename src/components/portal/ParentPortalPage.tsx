@@ -1,3 +1,4 @@
+import {fetchSignInRead} from "../../lib/sign-in-service";
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bell, CreditCard, FileText, Home, LogOut, Printer, ShieldCheck } from "lucide-react";
 import { SchoolLogo } from "../ui/SchoolLogo";
@@ -5,7 +6,7 @@ import { schoolConfig } from "../../data/school";
 import { checkSchoolService, PortalUnavailable, type SchoolHealth } from "../ui/PortalAvailability";
 import { AcademicTermFilter, matchesAcademicTerm } from "../ui/AcademicTerms";
 
-type User = { id: number; full_name: string; role: string; parent_id: number | null };
+type User = { id: number; full_name: string; role: string; parent_id: number | null; registration_pending?: number | boolean };
 type Row = Record<string, string | number | null>;
 type Student = Row & { id: number; first_name: string; last_name: string; student_code: string; class_name: string | null };
 type Dashboard = { student: Student; attendance: { total_days: number; days_present: number; days_absent: number; other_days: number }; fees: { total_due: number | string; total_paid: number | string }; announcements: Row[] };
@@ -41,7 +42,8 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     const { demoRequest } = await import("./browserDemo");
     ({ status, body } = await demoRequest(path, options) as { status: number; body: { error?: string } | null });
   } else {
-    const response = await fetch(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
+    const send = path === "/api/auth/me" ? fetchSignInRead : fetch;
+    const response = await send(path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
     status = response.status;
     body = await response.json().catch(() => null);
   }
@@ -50,7 +52,9 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 function parentUser(user: User) {
-  if (!user || user.role !== "parent" || !user.parent_id) throw new ApiError("This account has no parent portal access. Please contact the school office.", 403);
+  if (user?.role === "developer" && !user.registration_pending) return user;
+  // Parents get access through Email + Unique ID. Accounts never linked by the school (pending) have none.
+  if (!user || user.role !== "parent" || !user.parent_id || user.registration_pending) throw new ApiError("This account has no parent portal access. Please contact the school office.", 403);
   return user;
 }
 function resource<T>(response: PromiseSettledResult<T>, list = false): Resource<T> {
@@ -108,14 +112,16 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   }, [sessionCheck]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.registration_pending) return;
     const controller = new AbortController();
     setChildrenLoading(true); setChildrenError(""); setChildren([]); setStudentId(""); setRecords(null); setPrintDocument(null);
-    api<Student[]>(`/api/parents/${encodeURIComponent(String(user.parent_id))}/children`, { signal: controller.signal })
+    const developer = user.role === "developer";
+    const endpoint = developer ? "/api/developer/parent-portal/students" : `/api/parents/${encodeURIComponent(String(user.parent_id))}/children`;
+    api<Student[]>(endpoint, { signal: controller.signal })
       .then((rows) => {
         if (controller.signal.aborted) return;
         if (!Array.isArray(rows)) throw new Error("The school returned an unreadable children list.");
-        setChildren(rows); setStudentId(rows.length ? String(rows[0].id) : "");
+        setChildren(rows); setStudentId(!developer && rows.length ? String(rows[0].id) : "");
       })
       .catch((reason) => {
         if (controller.signal.aborted) return;
@@ -127,22 +133,21 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   }, [user, reload]);
 
   useEffect(() => {
-    if (!user || !studentId) return;
+    if (!user || user.registration_pending || !studentId) return;
     const controller = new AbortController();
     setRecords(null); setPrintDocument(null);
     const base = `/api/students/${encodeURIComponent(studentId)}`;
     void (async () => {
-      const responses = await Promise.allSettled([
-        api<Dashboard>(`${base}/dashboard`, { signal: controller.signal }),
-        api<Row[]>(`${base}/results`, { signal: controller.signal }),
-        api<Row[]>(`${base}/attendance`, { signal: controller.signal }),
-        api<Row[]>(`${base}/fees`, { signal: controller.signal }),
-        api<Row[]>(`/api/payments?student_id=${encodeURIComponent(studentId)}`, { signal: controller.signal }),
-      ] as const);
-      if (controller.signal.aborted) return;
-      const expired = responses.find((result) => result.status === "rejected" && result.reason instanceof ApiError && result.reason.status === 401);
-      if (expired?.status === "rejected") { clearSession(); setError(message(expired.reason)); return; }
-      setRecords({ id: studentId, dashboard: resource(responses[0]), results: resource(responses[1], true), attendance: resource(responses[2], true), fees: resource(responses[3], true), payments: resource(responses[4], true) });
+      try {
+        const data=await api<Omit<Records,"id">>(`${base}/portal-records`,{signal:controller.signal});
+        if(controller.signal.aborted)return;
+        if(!data||!(["dashboard","results","attendance","fees","payments"] as const).every(key=>data[key]&&typeof data[key].error==="string"))throw new Error("The school returned an unreadable response. Please refresh.");
+        setRecords({id:studentId,...data});
+      }catch(reason){
+        if(controller.signal.aborted)return;
+        if(reason instanceof ApiError&&reason.status===401){clearSession();setError(message(reason));return;}
+        const failed={data:null,error:message(reason)};setRecords({id:studentId,dashboard:failed,results:failed,attendance:failed,fees:failed,payments:failed});
+      }
     })();
     return () => controller.abort();
   }, [user, studentId, recordReload]);
@@ -180,7 +185,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     try {
       await api("/api/auth/parent/verify", { method: "POST", body: JSON.stringify({ challenge, code }) });
       const session = await api<{ user: User }>("/api/auth/me");
-      setUser(parentUser(session.user)); form.reset(); setChallenge(""); setDetails(null); setLoginNotice(""); setDemoOutcome(null);
+      setUser(parentUser(session.user)); setView("overview"); form.reset(); setChallenge(""); setDetails(null); setLoginNotice(""); setDemoOutcome(null);
     } catch (reason) { failSignIn(reason); }
     finally { submitting.current = false; setBusy(false); }
   };
@@ -189,7 +194,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   const signOut = async () => {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError(""); clearSession();
-    try { await api("/api/auth/logout", { method: "POST" }); }
+    try { await api("/api/auth/logout", { method: "POST", body: "{}" }); }
     catch (reason) { setError(`Sign out could not be confirmed. ${message(reason)}`); }
     finally { submitting.current = false; setBusy(false); }
   };
@@ -198,7 +203,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   if (!user) return (
     <main className="min-h-[100dvh] bg-white text-[#27232D] lg:grid lg:grid-cols-2">
       <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#29166F] p-12 lg:flex">
-        <img src="/images/school/outdoor-learning-circle.jpg" alt="Marie Louise School pupils learning outdoors" className="absolute inset-0 h-full w-full object-cover" /><div className="absolute inset-0 bg-[#29166F]/85" />
+        <picture><source media="(min-width: 1024px)" srcSet="/images/school/outdoor-learning-circle.jpg"/><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="Marie Louise School pupils learning outdoors" className="absolute inset-0 h-full w-full object-cover" /></picture><div className="absolute inset-0 bg-[#29166F]/85" />
         <div className="relative"><SchoolLogo variant="dark" onClick={onBackToSchool} /></div>
         <div className="relative max-w-lg pb-12"><p className="mb-5 text-xs font-bold uppercase tracking-widest text-[#E9DB3D]">Parent partnership</p><h1 className="text-5xl font-extrabold leading-tight text-white">Every milestone, closer to home.</h1><p className="mt-6 leading-7 text-white/80">Follow your child&apos;s learning, attendance, school notices and fee records from one private space.</p></div>
       </section>
@@ -225,6 +230,8 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   );
 
   const selected = children.find((child) => String(child.id) === studentId);
+  const developerPreview = user.role === "developer";
+  const portalNavigation = navigation;
   const current = records?.id === studentId ? records : null;
   const filteredResults = current?.results.data?.filter(row => matchesAcademicTerm(row.term_id, resultTerm));
   const dashboard = current?.dashboard.data;
@@ -236,10 +243,11 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
       {demoExamples ? <p role="note" className="bg-[#E9DB3D] px-4 py-2 text-center text-xs font-bold text-[#29166F]">Demo portal: every name and record here is fictional.</p> : null}
       <header className="border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4"><SchoolLogo onClick={onBackToSchool} /><div className="flex items-center gap-4"><span className="text-sm font-bold text-[#29166F]">{user.full_name}</span><button onClick={signOut} disabled={busy} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#581C87]"><LogOut size={17} />Sign out</button></div></div></header>
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{navigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
+        <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
         <section className="min-w-0 p-4 sm:p-8">
-          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">Child<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
-          {childrenLoading ? <p role="status">Loading your children…</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message="No children are linked to your account. Please contact the school office." /> : <>
+          {developerPreview ? <aside aria-label="Developer preview" className="mb-6 rounded-lg border-l-4 border-[#E9DB3D] bg-[#29166F] p-5 text-white"><h2 className="font-extrabold">Developer preview · Read-only school records</h2><p className="mt-2 text-sm leading-6 text-white/85">Choose a student to inspect the parent-facing reports, attendance, fees and notices. You are signed in as Developer; this does not grant a parent account access to that student.</p><a href="/admin" className="mt-3 inline-flex min-h-11 items-center font-bold text-[#E9DB3D] underline">Back to staff workspace</a></aside> : null}
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-widest text-[#581C87]">Parent portal</p><h1 className="mt-2 text-3xl font-extrabold text-[#29166F]">{navigation.find((item) => item.id === view)?.label}</h1></div>{children.length ? <label className="text-xs font-bold text-[#625B69]">{developerPreview ? "Preview student" : "Child"}<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setPrintDocument(null); }} className={`${inputClass} min-w-48`}>{developerPreview ? <option value="">Choose a student to preview</option> : null}{children.map((child) => <option key={child.id} value={String(child.id)}>{nameOf(child)}{child.class_name ? ` · ${child.class_name}` : ""}</option>)}</select></label> : null}</div>
+          {childrenLoading ? <p role="status">{developerPreview ? "Loading students for preview…" : "Loading your children…"}</p> : childrenError ? <Failure message={childrenError} retry={() => setReload((value) => value + 1)} /> : !children.length ? <Empty message={developerPreview ? "No active students are available to preview." : "No children are linked to your account. Please contact the school office."} /> : !studentId ? <Empty message="Choose a student above to preview their parent portal." /> : <>
             {selected ? <div className="mb-6 border-l-4 border-[#E9DB3D] pl-4"><h2 className="text-lg font-extrabold text-[#29166F]">{nameOf(selected)}</h2><p className="mt-1 text-sm text-[#625B69]">{selected.class_name || "Class not assigned"} · {selected.student_code}</p></div> : null}
             {!current ? <p role="status" className="py-8">Loading school records…</p> : <>
               <div className="mb-5 flex justify-end"><button onClick={retry} className="text-sm font-bold text-[#581C87]">Refresh records</button></div>

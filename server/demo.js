@@ -48,7 +48,8 @@ if (!(await ensureDatabase())) process.exit(1);
 
 const { pool } = await import('./db.js');
 const { migrate } = await import('./migrate.js');
-const { seedDemo, SIGN_IN_EXAMPLES } = await import('./demo-data.js');
+const { seedDemo } = await import('./demo-data.js');
+const { SIGN_IN_EXAMPLES } = await import('../shared/portal-demo.js');
 
 try {
   const db = await pool.getConnection();

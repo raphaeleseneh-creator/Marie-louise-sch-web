@@ -1,5 +1,9 @@
 import { pool } from './db.js';
 import { fileURLToPath } from 'node:url';
+import { ensureGoogleSchema } from './google-schema.js';
+import { ensureDeveloperRole } from './developer-schema.js';
+import { ensureEnrollmentSchema } from './enrollment.js';
+import {ensurePerformanceIndexes} from './performance-schema.js';
 
 export const OPERATIONAL_AIRTABLE_TABLES = [
   'classes',
@@ -51,6 +55,10 @@ export async function migrate() {
     }
   }
   await ensureAirtableIdColumns(pool);
+  await ensureGoogleSchema(pool);
+  await ensureDeveloperRole(pool);
+  await ensureEnrollmentSchema(pool);
+  await ensurePerformanceIndexes(pool);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try { await migrate(); console.log('Database additions ready. Existing records preserved.'); } finally { await pool.end(); }
