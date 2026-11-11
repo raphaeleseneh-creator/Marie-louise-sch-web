@@ -18,7 +18,7 @@ See [performance and capacity](PERFORMANCE-AND-CAPACITY.md) for measured improve
 
 `npm run demo` resets a separate database (`marie_louise_school_demo`) to a few fictional families and starts the API against it. Then run `npm run dev` and open the [parent portal](http://localhost:3000/parent-portal). Sign-in codes appear on screen instead of being emailed, and the sign-in page lists sample logins. The real school database is never touched. On first use the script prints two lines for a MySQL administrator to run once so the app's database user can create the demo database. Stop the normal API (`npm run server`) first, because both use port 4000.
 
-`npm run build:demo` builds a browser-only version of the same demo (no server, database or email) for static previews. The normal `npm run build` contains no demo code.
+The live site also has a browser-only version of the same demo at `/parent-portal?demo`, linked from the parent sign-in page as "Try the parent portal demo". It answers every request in the visitor's browser with the fictional families in `shared/portal-demo.js` and never calls the school API, so it cannot show or change real records. Its code is downloaded only when the demo is opened. To remove the link, delete the "Try the parent portal demo" anchor in `ParentPortalPage.tsx`. `npm run build:demo` builds a site where the whole parent portal is the demo.
 
 ## School access and data
 

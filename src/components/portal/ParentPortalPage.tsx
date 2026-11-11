@@ -33,12 +33,14 @@ const date = (value: Row[string]) => {
 };
 const message = (error: unknown) => error instanceof Error ? error.message : "Unable to reach the school. Please try again.";
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
-// `npm run build:demo`: the static site has no API, so requests are answered in the browser with
-// fictional families (browserDemo.ts). That code is only downloaded by the demo build.
-const BROWSER_DEMO = import.meta.env.MODE === "demo";
+// Portal demo at /parent-portal?demo (or every page in a `npm run build:demo` build): requests are
+// answered in the browser with fictional families (browserDemo.ts), never by the school API, so the
+// demo cannot reach real records. Its code is downloaded only when the demo is opened.
+const DEMO_PATH = "/parent-portal?demo";
+const browserDemo = () => import.meta.env.MODE === "demo" || new URLSearchParams(window.location.search).has("demo");
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   let status: number, body: { error?: string } | null;
-  if (BROWSER_DEMO) {
+  if (browserDemo()) {
     const { demoRequest } = await import("./browserDemo");
     ({ status, body } = await demoRequest(path, options) as { status: number; body: { error?: string } | null });
   } else {
@@ -95,7 +97,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
     const controller = new AbortController();
     setChecking(true);
     setServiceUnavailable(false);
-    (BROWSER_DEMO ? api<SchoolHealth>("/api/health", { signal: controller.signal }) : checkSchoolService(controller.signal)).then((health) => {
+    (browserDemo() ? api<SchoolHealth>("/api/health", { signal: controller.signal }) : checkSchoolService(controller.signal)).then((health) => {
       if (health.portalDemo) api<DemoExample[]>("/api/demo/sign-in-examples", { signal: controller.signal }).then((rows) => { if (!controller.signal.aborted && Array.isArray(rows)) setDemoExamples(rows); }).catch(() => undefined);
       else setDemoExamples(null);
       return api<{ user: User }>("/api/auth/me", { signal: controller.signal });
@@ -211,6 +213,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
         <div className="lg:hidden"><SchoolLogo onClick={onBackToSchool} /></div><button onClick={onBackToSchool} className="mt-6 inline-flex items-center gap-2 self-start text-sm font-bold text-[#581C87]"><ArrowLeft size={16} />School website</button>
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
           <ShieldCheck className="mb-5 text-[#581C87]" size={40} /><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Parent portal</p><h2 className="mt-2 text-4xl font-extrabold text-[#29166F]">Welcome back.</h2><p className="mt-3 text-sm leading-6 text-[#625B69]">Sign in with the email address the school has on record for you and your child&apos;s unique ID from their enrolment record. We&apos;ll email you a one-time code to finish signing in. <a className="font-bold text-[#581C87] underline" href={`mailto:${schoolConfig.email}?subject=Parent%20portal%20sign-in%20help`}>Email the school for sign-in help</a>.</p>
+          {demoExamples ? <p role="note" className="mt-5 rounded-lg bg-[#E9DB3D] px-4 py-3 text-sm font-bold leading-6 text-[#29166F]">Demo: fictional families only. Codes appear on screen instead of being emailed. <a href="/parent-portal" className="underline">Leave demo</a></p> : null}
           {serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}
           {!challenge ? <form key={formKey} onSubmit={startSignIn} className="mt-8 space-y-5" aria-busy={busy} hidden={serviceUnavailable}>
             <label className="block text-sm font-bold">Email<input name="email" type="email" autoComplete="email" required disabled={busy} defaultValue={details?.email} className={inputClass} placeholder="parent@email.com" /></label>
@@ -224,6 +227,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
             <div className="flex flex-wrap justify-between gap-3 text-sm font-bold text-[#581C87]"><button type="button" disabled={busy} onClick={changeDetails}>Use different details</button><button type="button" disabled={busy || !details} onClick={() => details && void requestCode(details)}>Send a new code</button></div>
           </form>}
           {demoExamples && demoExamples.length > 0 && !serviceUnavailable ? <section aria-label="Demo sign-ins" className="mt-8 rounded-lg border border-dashed border-[#B7A3CC] bg-[#F7F3FB] p-4"><p className="text-xs font-extrabold uppercase tracking-widest text-[#581C87]">Demo · fictional families</p><p className="mt-1 text-xs leading-5 text-[#625B69]">Pick an example to fill in the form, then press the button above.</p><ul className="mt-3 space-y-3">{demoExamples.map((example) => <li key={example.label}><button type="button" disabled={busy} onClick={() => pickExample(example)} className="w-full rounded-md bg-white p-3 text-left text-sm shadow-sm ring-1 ring-[#E5DFE9] transition hover:ring-[#581C87]"><span className="block font-bold text-[#29166F]">{example.label}</span><span className="block font-mono text-xs text-[#625B69]">{example.email} · {example.unique_id}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{example.expect}</span></button></li>)}</ul></section> : null}
+          {!demoExamples ? <a href={DEMO_PATH} className="mt-8 block rounded-lg border border-dashed border-[#B7A3CC] bg-[#F7F3FB] p-4 text-sm leading-6 text-[#29166F] transition hover:border-[#581C87]"><span className="block font-extrabold">Try the parent portal demo</span><span className="block text-[#625B69]">See how sign-in and the portal work using fictional families. No real records are shown.</span></a> : null}
         </div><p className="border-t border-[#E8E2ED] pt-5 text-center text-xs text-[#625B69]">Private access for Marie Louise School families</p>
       </section>
     </main>
@@ -240,7 +244,7 @@ export const ParentPortalPage: React.FC<{ onBackToSchool: () => void }> = ({ onB
   return (
     <main id="parent-portal-root" className="min-h-[100dvh] bg-[#F5F3F7] text-[#27232D]">
       <style>{`@media print { body * { visibility: hidden !important; } #parent-portal-root > header, #parent-portal-root > div { display: none !important; } #parent-portal-print, #parent-portal-print * { visibility: visible !important; } #parent-portal-print { display: block !important; position: absolute; inset: 0; padding: 20px; background: white; color: black; } #parent-portal-print table { font-size: 10px; } #parent-portal-print .overflow-x-auto { overflow: visible; } #parent-portal-print th, #parent-portal-print td { white-space: normal; } #parent-portal-print tr { break-inside: avoid; } }`}</style>
-      {demoExamples ? <p role="note" className="bg-[#E9DB3D] px-4 py-2 text-center text-xs font-bold text-[#29166F]">Demo portal: every name and record here is fictional.</p> : null}
+      {demoExamples ? <p role="note" className="bg-[#E9DB3D] px-4 py-2 text-center text-xs font-bold text-[#29166F]">Demo portal: every name and record here is fictional. <a href="/parent-portal" className="underline">Leave demo</a></p> : null}
       <header className="border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4"><SchoolLogo onClick={onBackToSchool} /><div className="flex items-center gap-4"><span className="text-sm font-bold text-[#29166F]">{user.full_name}</span><button onClick={signOut} disabled={busy} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#581C87]"><LogOut size={17} />Sign out</button></div></div></header>
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav aria-label="Parent portal" className="border-b border-[#E5DFE9] bg-white p-4 lg:min-h-[calc(100vh-90px)] lg:border-r"><div className="flex flex-wrap gap-2 lg:flex-col">{portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? "page" : undefined} className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition ${view === id ? "bg-[#581C87] text-white" : "text-[#625B69] hover:bg-[#F1ECF6]"}`}><Icon size={17} />{label}</button>)}<button onClick={onBackToSchool} className="mt-3 flex min-h-11 items-center gap-3 px-3 text-left text-sm font-bold text-[#625B69]"><ArrowLeft size={17} />School website</button></div></nav>
