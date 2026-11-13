@@ -1,7 +1,8 @@
 import {createWorkspaceCache} from "../../lib/workspace-cache";
 import {FamilyAccessCodes} from "./FamilyAccessCodes";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bell, BookOpenCheck, CalendarDays, CircleDollarSign, ClipboardCheck, GraduationCap, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, CalendarDays, ChevronRight, CircleDollarSign, ClipboardCheck, ClipboardList, Eye, GraduationCap, KeyRound, LayoutDashboard, LogOut, Megaphone, Menu, Receipt, RefreshCw, School, Settings, ShieldCheck, UserCog, Users, X } from "lucide-react";
+import { LoadingBlock, SkipLink } from "../ui/StatusBadge";
 import { GoogleSignIn } from "../ui/GoogleSignIn";
 import { SchoolLogo } from "../ui/SchoolLogo";
 import { checkSchoolService, PortalUnavailable } from "../ui/PortalAvailability";
@@ -13,27 +14,31 @@ import { AccountSettings } from "./AccountSettings";
 import { SyncSection } from "./SyncSection";
 
 type View = "overview" | "students" | "classes" | "parents" | "results" | "attendance" | "fees" | "payments" | "announcements" | "admissions" | "tours" | "accounts" | "settings" | "sync" | "link-codes";
-type Navigation = { id: View; label: string; icon: React.ElementType; roles: Role[] };
+type Group = "Records" | "Teaching" | "Finance" | "Front office" | "Administration";
+type Navigation = { id: View; label: string; icon: React.ElementType; roles: Role[]; group?: Group };
 const staff: Role[] = ["developer", "admin", "teacher", "bursar"];
 const teaching: Role[] = ["developer", "admin", "teacher"];
 const finance: Role[] = ["developer", "admin", "bursar"];
+const management: Role[] = ["developer", "admin"];
+// Grouped by task so each role sees a short, predictable menu with one distinct icon per item.
 const navigation: Navigation[] = [
-  {id:"link-codes",label:"Family access codes",icon:ShieldCheck,roles:["developer","admin"]},
   { id: "overview", label: "Overview", icon: LayoutDashboard, roles: staff },
-  { id: "students", label: "Students", icon: GraduationCap, roles: staff },
-  { id: "classes", label: "Classes", icon: BookOpenCheck, roles: staff },
-  { id: "parents", label: "Parents & guardians", icon: Users, roles: ["developer", "admin"] },
-  { id: "results", label: "Results", icon: BookOpenCheck, roles: teaching },
-  { id: "attendance", label: "Attendance", icon: ClipboardCheck, roles: teaching },
-  { id: "fees", label: "Fee invoices", icon: CircleDollarSign, roles: finance },
-  { id: "payments", label: "Payments", icon: CircleDollarSign, roles: finance },
-  { id: "announcements", label: "Announcements", icon: Bell, roles: teaching },
-  { id: "admissions", label: "Admissions", icon: GraduationCap, roles: ["developer", "admin"] },
-  { id: "tours", label: "School tours", icon: CalendarDays, roles: ["developer", "admin"] },
-  { id: "accounts", label: "Accounts & access", icon: ShieldCheck, roles: ["developer", "admin"] },
-  { id: "settings", label: "Account settings", icon: ShieldCheck, roles: staff },
-  { id: "sync", label: "Airtable sync", icon: RefreshCw, roles: ["developer", "admin"] },
+  { id: "students", label: "Students", icon: GraduationCap, roles: staff, group: "Records" },
+  { id: "classes", label: "Classes", icon: School, roles: staff, group: "Records" },
+  { id: "parents", label: "Parents & guardians", icon: Users, roles: management, group: "Records" },
+  { id: "link-codes", label: "Family access codes", icon: KeyRound, roles: management, group: "Records" },
+  { id: "results", label: "Results", icon: BookOpenCheck, roles: teaching, group: "Teaching" },
+  { id: "attendance", label: "Attendance", icon: ClipboardCheck, roles: teaching, group: "Teaching" },
+  { id: "announcements", label: "Announcements", icon: Megaphone, roles: teaching, group: "Teaching" },
+  { id: "fees", label: "Fee invoices", icon: CircleDollarSign, roles: finance, group: "Finance" },
+  { id: "payments", label: "Payments", icon: Receipt, roles: finance, group: "Finance" },
+  { id: "admissions", label: "Admissions", icon: ClipboardList, roles: management, group: "Front office" },
+  { id: "tours", label: "School tours", icon: CalendarDays, roles: management, group: "Front office" },
+  { id: "accounts", label: "Accounts & access", icon: UserCog, roles: management, group: "Administration" },
+  { id: "sync", label: "Airtable sync", icon: RefreshCw, roles: management, group: "Administration" },
+  { id: "settings", label: "Account settings", icon: Settings, roles: staff, group: "Administration" },
 ];
+const groups: Group[] = ["Records", "Teaching", "Finance", "Front office", "Administration"];
 const descriptions: Record<View, string> = {
   "link-codes":"Issue student IDs and private codes for parent self-service linking.",
   overview: "Choose a section to manage school records.", students: "Student records available to your account.", classes: "Classes available to your account.",
@@ -106,6 +111,19 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
 
   useEffect(() => { void refresh(); return () => { requestVersion.current += 1; }; }, [refresh]);
 
+  // Mobile menu: Escape closes it, and the page behind does not scroll while it is open.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", close);
+    return () => { window.removeEventListener("keydown", close); document.body.style.overflow = overflow; };
+  }, [menuOpen]);
+
+  const currentLabel = allowed.find(item => item.id === view)?.label || "Workspace";
+  useEffect(() => { if (user) document.title = `${currentLabel} · Staff workspace · Marie Louise School`; }, [user, currentLabel]);
+
   const save = async (path: string, payload: Record<string, unknown>, method: "POST" | "PATCH" = "POST") => {
     const version = requestVersion.current;
     try {
@@ -133,9 +151,9 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
     finally { setLoggingOut(false); }
   };
 
-  const noticeElement = notice ? <div role={notice.error ? "alert" : "status"} className={`mb-6 flex items-start justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${notice.error ? "border-red-200 bg-red-50 text-red-800" : "border-green-200 bg-green-50 text-green-800"}`}><p className="break-words whitespace-pre-wrap">{notice.text}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="shrink-0 p-1"><X size={18} /></button></div> : null;
+  const noticeElement = notice ? <div role={notice.error ? "alert" : "status"} className={`mb-6 flex items-start justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${notice.error ? "border-red-200 bg-red-50 text-red-800" : "border-green-200 bg-green-50 text-green-800"}`}><p className="break-words whitespace-pre-wrap">{notice.text}</p><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification" className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-current"><X size={18} /></button></div> : null;
 
-  if (checking) return <main className="flex min-h-screen items-center justify-center bg-[#F6F3F8] p-6 text-[#29166F]"><p role="status">Checking your staff session…</p></main>;
+  if (checking) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#F6F3F8] p-6 text-[#29166F]"><RefreshCw aria-hidden="true" size={28} className="animate-spin text-[#581C87] motion-reduce:animate-none" /><p role="status" className="text-sm font-bold">Checking your staff session…</p></main>;
   if (!user) return <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#F6F3F8] px-4 py-10"><div className="w-full max-w-md"><div className="mb-6 rounded-xl border-t-4 border-[#E9DB3D] bg-[#29166F] p-7 text-white"><SchoolLogo variant="dark" onClick={onBackToSchool} /><p className="mt-6 text-xs font-extrabold uppercase tracking-widest text-[#E9DB3D]">Staff workspace</p><h1 className="mt-2 text-2xl font-extrabold">Sign in to school records</h1><p className="mt-3 text-sm text-white/75">For developers, administrators, teachers and bursars.</p></div>{noticeElement}{serviceUnavailable ? <PortalUnavailable retry={() => setSessionCheck(value => value + 1)} /> : null}<EntryForm disabled={serviceUnavailable} title="Staff sign in" submitLabel="Sign in" onSave={async data => {
     try {
       await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: String(data.email).trim(), password: data.password }) });
@@ -149,18 +167,23 @@ export const AdminDashboard: React.FC<{ onBackToSchool: () => void }> = ({ onBac
   }}><Field label="Email address" name="email" type="email" autoComplete="username" required /><Field label="Password" name="password" type="password" autoComplete="current-password" required /></EntryForm>{!serviceUnavailable ? <GoogleSignIn portal="staff" /> : null}<button className={`${secondaryClass} mt-5 w-full`} onClick={onBackToSchool}><ArrowLeft size={16} />School website</button></div></main>;
   if (!staff.includes(user.role)) return <main className="flex min-h-screen items-center justify-center bg-[#F6F3F8] p-6"><section className="max-w-md rounded-xl bg-white p-8 text-[#29166F]">{noticeElement}<ShieldCheck className="mb-4" /><h1 className="text-2xl font-extrabold">Staff access required</h1><p className="mt-3 text-sm leading-6">This account does not have access to the staff workspace. Use the parent portal on the school website to view family records.</p><div className="mt-6 flex flex-wrap gap-3"><button className={buttonClass} onClick={onBackToSchool}>School website</button><button className={secondaryClass} onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? "Signing out…" : "Sign out"}</button></div></section></main>;
 
+  const navButton = (item: Navigation) => { const Icon = item.icon; const active = view === item.id; return <button key={item.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { navigate(item.id); }} className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E9DB3D] ${active ? "bg-[#E9DB3D] text-[#29166F]" : "text-white/80 hover:bg-white/10 hover:text-white"}`}><Icon aria-hidden="true" size={18} className="shrink-0" />{item.label}</button>; };
+  const footerLink = "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-[#E9DB3D]";
   return <main className="min-h-[100dvh] bg-[#F6F3F8] text-[#27232D]">
-    <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] flex-col bg-[#29166F] p-5 text-white transition-transform duration-200 motion-reduce:transition-none lg:translate-x-0 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`} aria-label="Staff navigation">
-      <div className="flex items-center justify-between border-b border-white/15 pb-5"><SchoolLogo variant="dark" onClick={onBackToSchool} /><button aria-label="Close navigation" className="p-2 lg:hidden" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
-      <p className="mb-3 mt-6 px-3 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#E9DB3D]">Staff workspace</p>
-      <nav className="flex-1 space-y-1 overflow-y-auto">{allowed.map(item => { const Icon = item.icon; return <button key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => { navigate(item.id); }} className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-[#E9DB3D] ${view === item.id ? "bg-[#E9DB3D] text-[#29166F]" : "text-white/75 hover:bg-white/10 hover:text-white"}`}><Icon size={18} />{item.label}</button>; })}</nav>
-      <div className="mt-4 border-t border-white/15 pt-4"><p className="truncate px-3 text-sm font-bold">{user.full_name}</p><p className="mt-1 px-3 text-xs capitalize text-white/60">{user.role}</p>{user.role === "developer" ? <a href="/parent-portal" className="mt-3 flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-[#E9DB3D] hover:bg-white/10"><ShieldCheck size={16} />Parent portal preview</a> : null}<button className="mt-3 flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-white/80 hover:bg-white/10 disabled:opacity-50" onClick={() => void logout()} disabled={loggingOut}><LogOut size={16} />{loggingOut ? "Signing out…" : "Sign out"}</button><button onClick={onBackToSchool} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-white/80 hover:bg-white/10"><ArrowLeft size={16} />School website</button></div>
+    <SkipLink target="workspace-content" />
+    <aside className={`fixed inset-y-0 left-0 z-40 flex w-[270px] flex-col bg-[#29166F] p-5 text-white shadow-xl transition-transform duration-200 motion-reduce:transition-none lg:translate-x-0 lg:shadow-none ${menuOpen ? "translate-x-0" : "-translate-x-full"}`} aria-label="Staff navigation">
+      <div className="flex items-center justify-between border-b border-white/15 pb-5"><SchoolLogo variant="dark" onClick={onBackToSchool} /><button type="button" aria-label="Close navigation" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-white/10 lg:hidden" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
+      <nav className="-mx-1 mt-5 flex-1 overflow-y-auto px-1">
+        {allowed.filter(item => !item.group).map(navButton)}
+        {groups.map(group => { const items = allowed.filter(item => item.group === group); return items.length ? <div key={group} className="mt-5"><p className="mb-1.5 px-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#E9DB3D]/90">{group}</p><div className="space-y-0.5">{items.map(navButton)}</div></div> : null; })}
+      </nav>
+      <div className="mt-4 border-t border-white/15 pt-4"><div className="flex items-center gap-3 px-3"><span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#E9DB3D] text-sm font-extrabold text-[#29166F]">{user.full_name.trim().charAt(0).toUpperCase() || "?"}</span><div className="min-w-0"><p className="truncate text-sm font-bold">{user.full_name}</p><p className="text-xs capitalize text-white/70">{user.role}</p></div></div>{user.role === "developer" ? <a href="/parent-portal" className={`${footerLink} mt-3 text-[#E9DB3D]`}><Eye aria-hidden="true" size={16} />Parent portal preview</a> : null}<button type="button" className={`${footerLink} mt-1 text-white/85 disabled:opacity-50`} onClick={() => void logout()} disabled={loggingOut}><LogOut aria-hidden="true" size={16} />{loggingOut ? "Signing out…" : "Sign out"}</button><button type="button" onClick={onBackToSchool} className={`${footerLink} text-white/85`}><ArrowLeft aria-hidden="true" size={16} />School website</button></div>
     </aside>
-    {menuOpen ? <button className="fixed inset-0 z-30 bg-[#160B35]/50 lg:hidden" aria-label="Close navigation overlay" onClick={() => setMenuOpen(false)} /> : null}
-    <div className="lg:pl-[270px]"><header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] bg-white px-4 py-4 sm:px-8"><div className="flex items-center gap-3"><button className={secondaryClass} aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} style={{ padding: 10 }}><Menu size={20} className="lg:hidden" /><span className="hidden lg:inline text-xs">Marie Louise School</span></button><h1 className="text-xl font-extrabold text-[#29166F]">{allowed.find(item => item.id === view)?.label || "Workspace"}</h1></div><button className={secondaryClass} disabled={loading} onClick={() => void refresh(true)} aria-label="Refresh records"><RefreshCw size={16} className={loading ? "animate-spin motion-reduce:animate-none" : ""} /><span className="hidden sm:inline">Refresh</span></button></header>
-    <section className="mx-auto max-w-[1700px] px-4 py-7 sm:px-8"><p className="mb-6 text-sm text-[#625B69]">{descriptions[view]}</p>{noticeElement}
-      {!authorized ? <p role="alert">This section is not available to your role.</p> : loading ? <p role="status" className="rounded-xl border border-[#E5DFE9] bg-white p-8 text-sm text-[#625B69]">Loading records…</p> : loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-white p-6"><p className="mb-4 text-sm text-red-800">{loadError}</p><button className={buttonClass} onClick={() => void refresh()}>Try again</button></div> : <>
-      {view === "overview" ? <div><div className="mb-8 flex flex-wrap gap-10 border-y border-[#E5DFE9] py-6"><div><p className="text-sm text-[#625B69]">Students in your scope</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.students.length}</p></div><div><p className="text-sm text-[#625B69]">Available classes</p><p className="mt-2 text-3xl font-extrabold text-[#29166F]">{data.classes.length}</p></div><div><p className="text-sm text-[#625B69]">Signed in as</p><p className="mt-2 text-lg font-bold capitalize text-[#29166F]">{user.role}</p></div></div><h2 className="mb-4 text-xl font-extrabold text-[#29166F]">Your workspace</h2><div className="grid gap-x-8 sm:grid-cols-2">{allowed.filter(item => item.id !== "overview").map(item => <button key={item.id} className="group flex min-h-20 items-center justify-between gap-4 border-b border-[#E5DFE9] py-4 text-left" onClick={() => { navigate(item.id); }}><span><span className="block font-bold text-[#29166F]">{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{descriptions[item.id]}</span></span><span aria-hidden="true" className="text-xl text-[#581C87] transition-transform group-hover:translate-x-1">→</span></button>)}</div></div> : null}
+    {menuOpen ? <button type="button" tabIndex={-1} className="fixed inset-0 z-30 bg-[#160B35]/50 lg:hidden" aria-label="Close navigation overlay" onClick={() => setMenuOpen(false)} /> : null}
+    <div className="lg:pl-[270px]"><header className="sticky top-0 z-20 flex min-h-[72px] items-center justify-between gap-4 border-b border-[#E5DFE9] bg-white/95 px-4 py-3 backdrop-blur sm:px-8"><div className="flex min-w-0 items-center gap-3"><button type="button" className={`${secondaryClass} w-11 px-0 lg:hidden`} aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu size={20} /></button><div className="min-w-0"><p className="hidden text-xs font-bold text-[#625B69] sm:block">Staff workspace</p><h1 className="truncate text-xl font-extrabold text-[#29166F]">{currentLabel}</h1></div></div><button type="button" className={secondaryClass} disabled={loading} onClick={() => void refresh(true)} aria-label="Refresh records"><RefreshCw aria-hidden="true" size={16} className={loading ? "animate-spin motion-reduce:animate-none" : ""} /><span className="hidden sm:inline">Refresh</span></button></header>
+    <section id="workspace-content" tabIndex={-1} className="mx-auto max-w-[1700px] px-4 py-7 outline-none sm:px-8"><p className="mb-6 max-w-3xl text-sm leading-6 text-[#625B69]">{descriptions[view]}</p>{noticeElement}
+      {!authorized ? <p role="alert" className="rounded-xl border border-[#E5DFE9] bg-white p-6 text-sm">This section is not available to your role.</p> : loading ? <LoadingBlock rows={view === "overview" ? 3 : 6} /> : loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-white p-6"><p className="font-bold text-red-800">We couldn&apos;t load these records.</p><p className="mb-4 mt-1 text-sm text-red-800">{loadError}</p><button type="button" className={buttonClass} onClick={() => void refresh()}>Try again</button></div> : <>
+      {view === "overview" ? <div><div className="mb-8 grid gap-4 sm:grid-cols-3">{[{ label: "Students in your scope", value: data.students.length, icon: GraduationCap }, { label: "Available classes", value: data.classes.length, icon: School }, { label: "Signed in as", value: user.role, icon: ShieldCheck }].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl border border-[#E5DFE9] bg-white p-5 shadow-[0_1px_2px_rgba(41,22,111,0.04)]"><div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-[#625B69]">{label}</p><span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F1ECF6] text-[#581C87]"><Icon size={18} /></span></div><p className={`mt-3 font-extrabold capitalize tabular-nums text-[#29166F] ${typeof value === "number" ? "text-3xl" : "text-xl"}`}>{value}</p></div>)}</div><h2 className="mb-4 text-lg font-extrabold text-[#29166F]">Your workspace</h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{allowed.filter(item => item.id !== "overview").map(item => { const Icon = item.icon; return <button key={item.id} type="button" className="group flex min-h-20 items-start gap-4 rounded-xl border border-[#E5DFE9] bg-white p-4 text-left transition hover:border-[#581C87]/40 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#581C87] motion-reduce:transition-none" onClick={() => { navigate(item.id); }}><span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#F1ECF6] text-[#581C87]"><Icon size={20} /></span><span className="min-w-0 flex-1"><span className="block font-bold text-[#29166F]">{item.label}</span><span className="mt-1 block text-xs leading-5 text-[#625B69]">{descriptions[item.id]}</span></span><ChevronRight aria-hidden="true" size={18} className="mt-1 shrink-0 text-[#581C87] transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" /></button>; })}</div></div> : null}
       {view === "students" ? <DataTable rows={data.students} searchLabel="Search student or class" columns={[{ label: "Student", render: studentName }, { label: "Student code", render: row => row.student_code }, { label: "Record ID", render: row => row.id }, { label: "Class", render: row => row.class_name || "Unassigned" }, { label: "Status", render: row => <Status value={row.enrollment_status || "active"} /> }]} /> : null}
       {view === "classes" ? <DataTable rows={data.classes} columns={[{ label: "Class", render: row => row.name }, { label: "Class ID", render: row => row.id }]} /> : null}
       {view === "parents" && ["developer", "admin"].includes(user.role) ? <DataTable rows={data.parents} columns={[{ label: "Name", render: row => row.full_name }, { label: "Email", render: row => row.email }, { label: "Phone", render: row => row.phone || "—" }, { label: "Status", render: row => <Status value={row.status} /> }]} /> : null}
